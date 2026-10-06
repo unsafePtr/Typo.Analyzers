@@ -1,0 +1,22 @@
+# Build output
+bin/
+obj/
+artifacts/
+
+# IDE state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.DotSettings.user
+
+# Test and coverage results
+TestResults/
+*.cobertura.xml
+*.coverage
+coverage/
+
+# Build logs
+*.binlog
+msbuild*.log

@@ -1,0 +1,22 @@
+<!-- A global -p:WarningLevel=0 would hide every analyzer diagnostic, including the culture rules raised to errors in .editorconfig. -->
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="WarningLevel">
+
+  <PropertyGroup>
+    <WarningLevel>9999</WarningLevel>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="xunit.v3.mtp-v2" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Analyzer.Testing" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TypoAnalyzers\TypoAnalyzers.csproj" />
+  </ItemGroup>
+
+</Project>

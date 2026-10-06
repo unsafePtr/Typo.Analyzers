@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TypoAnalyzers/TypoAnalyzers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TypoAnalyzers.Tests/TypoAnalyzers.Tests.csproj" />
+  </Folder>
+</Solution>
