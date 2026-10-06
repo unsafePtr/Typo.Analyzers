@@ -50,4 +50,22 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "A nested 'if' repeats a check that an enclosing 'if' already made, and nothing in between can change its value. The inner check was usually meant to test something else.");
+
+    public static readonly DiagnosticDescriptor IdenticalBranches = new(
+        id: "TYPO0006",
+        title: "Both branches are identical",
+        messageFormat: "Both branches of this '{0}' are identical, so the condition '{1}' has no effect",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The 'then' and 'else' parts of an if statement or conditional expression are the same, so the condition does nothing.");
+
+    public static readonly DiagnosticDescriptor DuplicateBranchBody = new(
+        id: "TYPO0007",
+        title: "Two branches do the same thing",
+        messageFormat: "This branch is identical to the branch for '{0}'",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Two cases of a switch, or two branches of an if-else chain, have identical bodies. When the bodies are meant to differ by one value, the copy was usually not edited; otherwise merge the labels.");
 }
