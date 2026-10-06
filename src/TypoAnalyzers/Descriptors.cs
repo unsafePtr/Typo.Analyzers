@@ -86,4 +86,13 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "A for loop iterates over a collection, but its body indexes the collection with a constant and never uses the loop variable.");
+
+    public static readonly DiagnosticDescriptor StringCaseMismatch = new(
+        id: "TYPO0010",
+        title: "Comparison with a string of the wrong case",
+        messageFormat: "'{0}' can never match a string converted to {1} case",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A string converted with ToLower or ToUpper is compared with, or searched for, text containing letters of the other case, so the check always fails.");
 }
