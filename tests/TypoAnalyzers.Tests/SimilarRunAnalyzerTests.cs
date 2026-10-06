@@ -6,8 +6,47 @@ namespace TypoAnalyzers.Tests;
 
 public sealed class SimilarRunAnalyzerTests
 {
-    private static DiagnosticResult Anomaly(string actual, string expected) =>
-        Verify.Diagnostic(Descriptors.SimilarLineAnomaly).WithLocation(0).WithArguments(actual, expected);
+    // One pair from every source TYPO0012.scan can name, in its order, then a TYPO0011 run the option must not touch.
+    private const string PairInEverySource =
+        """
+        public readonly record struct Vec(int X, int Y);
+
+        public sealed class Box
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+
+            public void Statements(Box b)
+            {
+                X = b.X;
+                Y = {|#0:b.X|};
+            }
+
+            public static int Declarations(Box b)
+            {
+                var x = b.X;
+                var y = {|#1:b.X|};
+                return x + y;
+            }
+
+            public static Box Initializers(Box b) => new Box { X = b.X, Y = {|#2:b.X|} };
+
+            public bool Conditions(Box b) => X == b.X && Y == {|#3:b.X|};
+
+            public static Vec Arguments(Box b) => new Vec(b.X, {|#4:b.X|});
+
+            public void Run(Box b)
+            {
+                X = b.X;
+                Y = b.Y;
+                Z = {|#5:b.Y|};
+            }
+        }
+        """;
+
+    private static DiagnosticResult Anomaly(string actual, string expected, int location = 0) =>
+        Verify.Diagnostic(Descriptors.SimilarLineAnomaly).WithLocation(location).WithArguments(actual, expected);
 
     private static DiagnosticResult Pair(string actual, string expected, int location = 0) =>
         Verify.Diagnostic(Descriptors.SimilarPairAnomaly).WithLocation(location).WithArguments(actual, expected);
@@ -1205,4 +1244,16 @@ public sealed class SimilarRunAnalyzerTests
             }
         }
         """);
+
+    [Theory]
+    [InlineData("", new[] { 0, 1, 2, 3, 4 })]
+    [InlineData("TYPO0012.scan = declarations, arguments", new[] { 1, 4 })]
+    [InlineData("TYPO0012.scan = Statements,CONDITIONS", new[] { 0, 3 })]
+    [InlineData("TYPO0012.scan =  initializers ,, unknown", new[] { 2 })]
+    [InlineData("TYPO0012.scan = unknown", new[] { 0, 1, 2, 3, 4 })]
+    [InlineData("TYPO0011.scan = arguments", new[] { 0, 1, 2, 3, 4 })]
+    public Task Pair_ScanOption(string options, int[] reported) => Verify.VerifyWithOptionsAsync(
+        PairInEverySource,
+        options,
+        [.. reported.Select(location => Pair("b.X", "b.Y", location)), Anomaly("b.Y", "b.Z", 5)]);
 }

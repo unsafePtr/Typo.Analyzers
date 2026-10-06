@@ -27,6 +27,17 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 {
     private const int MinimumRun = 3;
 
+    private const string PairScanKey = "TYPO0012.scan";
+
+    private static readonly (string Name, Source Source)[] s_sourceNames =
+    [
+        ("statements", Source.Statements),
+        ("declarations", Source.Declarations),
+        ("initializers", Source.Initializers),
+        ("conditions", Source.Conditions),
+        ("arguments", Source.Arguments),
+    ];
+
     // Exact first, so the partial modes only add findings such as minX/maxY where key names wrap the other fragment.
     private static readonly Match[] s_modes = [Match.Exact, Match.KeyEndsWith, Match.KeyStartsWith];
 
@@ -38,6 +49,18 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         Exact,
         KeyEndsWith,
         KeyStartsWith,
+    }
+
+    [Flags]
+    private enum Source
+    {
+        None = 0,
+        Statements = 1,
+        Declarations = 2,
+        Initializers = 4,
+        Conditions = 8,
+        Arguments = 16,
+        All = Statements | Declarations | Initializers | Conditions | Arguments,
     }
 
     [ThreadStatic]
@@ -245,7 +268,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                     {
                         AnalyzeRun(context, rows, slots, first, count);
                     }
-                    else if (count == 2)
+                    else if (count == 2 && (PairSources(context) & SourceOf(items[first])) != 0)
                     {
                         AnalyzePair(context, rows, slots, first);
                     }
@@ -260,6 +283,45 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             slots.Clear();
         }
     }
+
+    // 'TYPO0012.scan = declarations, arguments' in .editorconfig keeps only pairs from those sources.
+    // Unknown names are skipped, so a value with no known name keeps every source; the value is parsed in place because pairs are frequent.
+    private static Source PairSources(OperationAnalysisContext context)
+    {
+        var options = context.Options.AnalyzerConfigOptionsProvider.GetOptions(context.Operation.Syntax.SyntaxTree);
+        if (!options.TryGetValue(PairScanKey, out var value))
+        {
+            return Source.All;
+        }
+
+        var sources = Source.None;
+        var rest = value.AsSpan();
+        while (!rest.IsEmpty)
+        {
+            var comma = rest.IndexOf(',');
+            var name = (comma < 0 ? rest : rest.Slice(0, comma)).Trim();
+            rest = comma < 0 ? default : rest.Slice(comma + 1);
+            foreach (var (text, source) in s_sourceNames)
+            {
+                if (name.Equals(text.AsSpan(), StringComparison.OrdinalIgnoreCase))
+                {
+                    sources |= source;
+                }
+            }
+        }
+
+        return sources == Source.None ? Source.All : sources;
+    }
+
+    // The remaining items are operands of a &&/|| chain.
+    private static Source SourceOf(IOperation item) => item switch
+    {
+        IVariableDeclaratorOperation => Source.Declarations,
+        IArgumentOperation => Source.Arguments,
+        { Parent: IExpressionStatementOperation } => Source.Statements,
+        { Parent: IObjectOrCollectionInitializerOperation } => Source.Initializers,
+        _ => Source.Conditions,
+    };
 
     // Mirrors the top of DescribeItem's hash, so items of different shapes never hash alike; null for an item that never joins a run.
     private static int? TopShape(IOperation item) => item switch

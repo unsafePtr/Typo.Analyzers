@@ -55,6 +55,33 @@ public sealed class CultureIndependenceTests
             """,
             Verifier<Analyzers.SimilarRunAnalyzer>.Diagnostic(Descriptors.SimilarPairAnomaly).WithLocation(0).WithArguments("s.Index", "s.Items")));
 
+    // Culture-sensitive case-insensitive matching turns the 'I' in 'DECLARATIONS' into 'ı', so the name would be unknown and the statement pair reported too.
+    [Fact]
+    public Task PairScanOptionUnderTurkishCulture() => InTurkishAsync(() =>
+        Verifier<Analyzers.SimilarRunAnalyzer>.VerifyWithOptionsAsync(
+            """
+            public sealed class Store
+            {
+                public int Index;
+                public int Items;
+
+                public static int Read(Store s)
+                {
+                    var index = s.Index;
+                    var items = {|#0:s.Index|};
+                    return index + items;
+                }
+
+                public void Copy(Store s)
+                {
+                    Index = s.Index;
+                    Items = s.Index;
+                }
+            }
+            """,
+            "TYPO0012.scan = DECLARATIONS",
+            Verifier<Analyzers.SimilarRunAnalyzer>.Diagnostic(Descriptors.SimilarPairAnomaly).WithLocation(0).WithArguments("s.Index", "s.Items")));
+
     [Fact]
     public Task StringCaseUnderTurkishCulture() => InTurkishAsync(() =>
         Verifier<Analyzers.StringCaseAnalyzer>.VerifyAsync(

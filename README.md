@@ -29,6 +29,26 @@ Every analyzer shares the core in `src/TypoAnalyzers/Core`:
 - `Framework`: .NET types versus user types, for the reflexivity exclusions.
 - `Limits`: depth and stack guards, so huge generated expressions cannot overflow the compiler's stack.
 
+## Options
+
+TYPO0012 reads one option from `.editorconfig` or a global analyzer config, so it can differ per file:
+
+```ini
+[*.cs]
+TYPO0012.scan = declarations, arguments
+```
+
+`TYPO0012.scan` lists where pairs are looked for, and the default is all five:
+- `statements`: expression statements in a block, as in `X = b.X; Y = b.X;`
+- `declarations`: initialized locals, as in `var minY = pts.Min(p => p.X)`
+- `initializers`: members of an object or `with` initializer
+- `conditions`: operands of a `&&` or `||` chain
+- `arguments`: the arguments of one call or `new`, as in `new Vec(p.X, p.X)`
+
+`declarations, arguments` keeps only pairs keyed by a declared local or a parameter name.
+Names are matched ignoring case, unknown names are skipped, and a value with no known name keeps all five.
+TYPO0011 does not read this option.
+
 ## Culture independence
 
 The compiler and IDE run analyzers under the user's culture, so no verdict may depend on it:
@@ -42,7 +62,7 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 
 - Identical one-line `else if` bodies without calls or assignments are skipped on purpose to avoid noise.
 - In TYPO0011 and TYPO0012, numeric literals that are not indexes count as table data and never form a pattern.
-- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;`, `new Size(b.Width, b.Width)` and swizzles `XX => new(X, X)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`.
+- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;`, `new Size(b.Width, b.Width)` and swizzles `XX => new(X, X)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`; such lines are suppressed one at a time with `#pragma warning disable` or `[SuppressMessage]`.
 - TYPO0012 never pairs literal copies, all-lower-case compound names such as `dx` and `dy`, or names where one extends the other, such as `Name` and `DisplayName`.
 - TYPO0012 skips pairs that also differ in a number, framework values such as `float.MaxValue`, `Index.Start` or `Vector2.UnitX`, and names inside an access or call the second line already renamed.
 - TYPO0012 reports `f(x, x)` only when the `y` it should have been is never used, so a deliberate square such as `Multiply(x, x)` stays silent.

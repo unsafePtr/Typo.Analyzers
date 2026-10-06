@@ -112,5 +112,5 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Two adjacent similar statements, declarations, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011.");
+        description: "Two adjacent similar statements, declarations, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011. The 'TYPO0012.scan' option in .editorconfig limits it to some kinds of items, as in 'TYPO0012.scan = declarations, arguments'.");
 }
