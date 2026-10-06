@@ -23,4 +23,31 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "A value is passed to its own comparison method, or both arguments of a comparison are the same, so the result is constant. Comparison methods are often copied and the 'other' side left unedited.");
+
+    public static readonly DiagnosticDescriptor RepeatedElseIfCondition = new(
+        id: "TYPO0003",
+        title: "Condition repeated in an if-else chain",
+        messageFormat: "Condition '{0}' was already tested by an earlier branch of this if-else chain, so this branch never runs",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "An else-if branch repeats a condition that an earlier branch already tested, so it is unreachable.");
+
+    public static readonly DiagnosticDescriptor RepeatedAdjacentCondition = new(
+        id: "TYPO0004",
+        title: "Adjacent 'if' statements with the same condition",
+        messageFormat: "Condition '{0}' is identical to the condition of the preceding 'if' statement",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Two consecutive 'if' statements test the same condition and nothing in between can change it. Either the second one was meant to test something else, or the two should be merged.");
+
+    public static readonly DiagnosticDescriptor RepeatedNestedCondition = new(
+        id: "TYPO0005",
+        title: "Condition already checked by an enclosing 'if'",
+        messageFormat: "Condition '{0}' is always {1} here because an enclosing 'if' already checked it",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A nested 'if' repeats a check that an enclosing 'if' already made, and nothing in between can change its value. The inner check was usually meant to test something else.");
 }

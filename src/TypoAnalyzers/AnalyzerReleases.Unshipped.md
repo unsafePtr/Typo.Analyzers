@@ -7,3 +7,6 @@ Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
 TYPO0001 | Correctness | Warning | IdenticalOperandsAnalyzer
 TYPO0002 | Correctness | Warning | SelfArgumentAnalyzer
+TYPO0003 | Correctness | Warning | RepeatedConditionAnalyzer
+TYPO0004 | Correctness | Warning | RepeatedConditionAnalyzer
+TYPO0005 | Correctness | Warning | RepeatedConditionAnalyzer
