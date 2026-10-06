@@ -95,4 +95,13 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "A string converted with ToLower or ToUpper is compared with, or searched for, text containing letters of the other case, so the check always fails.");
+
+    public static readonly DiagnosticDescriptor SimilarLineAnomaly = new(
+        id: "TYPO0011",
+        title: "Probable unedited copy in a sequence of similar lines",
+        messageFormat: "'{0}' looks like an unedited copy from a neighbouring line; '{1}' was probably intended",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "In a run of similar statements, each line pairs matching names such as X with X and Y with Y, but one line repeats a name from another line where a different one was expected. This heuristic is reported as a suggestion.");
 }

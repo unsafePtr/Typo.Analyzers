@@ -15,3 +15,4 @@ TYPO0007 | Correctness | Warning | IdenticalBranchesAnalyzer
 TYPO0008 | Correctness | Warning | RepeatedAssignmentAnalyzer
 TYPO0009 | Correctness | Warning | LoopIndexAnalyzer
 TYPO0010 | Correctness | Warning | StringCaseAnalyzer
+TYPO0011 | Correctness | Info | SimilarRunAnalyzer
