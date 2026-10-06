@@ -43,7 +43,7 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
                 AnalyzeChain(context, binary, purity);
             }
         }
-        else if (IsConstantWhenOperandsMatch(binary)
+        else if (IsConstantWhenOperandsMatch(binary, context.Compilation)
             && purity.IsFree(binary.LeftOperand)
             && OperationEquivalence.AreEquivalent(binary.LeftOperand, binary.RightOperand))
         {
@@ -146,14 +146,14 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
         or BinaryOperatorKind.And
         or BinaryOperatorKind.ExclusiveOr;
 
-    private static bool IsConstantWhenOperandsMatch(IBinaryOperation binary)
+    private static bool IsConstantWhenOperandsMatch(IBinaryOperation binary, Compilation compilation)
     {
         switch (binary.OperatorKind)
         {
             case BinaryOperatorKind.Equals:
             case BinaryOperatorKind.NotEquals:
-                // 'x != x' is the classic NaN test, also on float? and double?.
-                if (IsFloatingPoint(binary.LeftOperand.Type))
+                // 'x != x' is the classic NaN test, on every IEEE type, their nullables and generic numbers that may be one.
+                if (IsFloatingPoint(binary.LeftOperand.Type, compilation))
                 {
                     return false;
                 }
@@ -177,11 +177,63 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
         return binary.OperatorMethod is null || Framework.IsFrameworkValue(binary.OperatorMethod.ContainingType);
     }
 
-    private static bool IsFloatingPoint(ITypeSymbol? type) => type switch
+    // Half, NFloat and later IEEE types are recognised by IFloatingPointIeee754<TSelf>; float and double are named because targets before .NET 7 lack it.
+    private static bool IsFloatingPoint(ITypeSymbol? type, Compilation compilation) => type switch
     {
-        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable => IsFloatingPoint(nullable.TypeArguments[0]),
-        _ => type?.SpecialType is SpecialType.System_Single or SpecialType.System_Double,
+        null => false,
+        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable => IsFloatingPoint(nullable.TypeArguments[0], compilation),
+        { SpecialType: SpecialType.System_Single or SpecialType.System_Double } => true,
+        { SpecialType: not SpecialType.None } => false,
+        ITypeParameterSymbol parameter => MayHoldDouble(parameter, compilation),
+        _ => IsIeee754(type),
     };
+
+    private static bool IsIeee754(ITypeSymbol type)
+    {
+        foreach (var contract in type.AllInterfaces)
+        {
+            if (contract is { Name: "IFloatingPointIeee754", ContainingNamespace: { Name: "Numerics", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Double meets INumber<T> but not IBinaryInteger<T> or 'class'; T : U is decided by U, which is not followed, so it never rules double out.
+    private static bool MayHoldDouble(ITypeParameterSymbol parameter, Compilation compilation)
+    {
+        if (parameter.HasReferenceTypeConstraint)
+        {
+            return false;
+        }
+
+        var @double = compilation.GetSpecialType(SpecialType.System_Double);
+        foreach (var constraint in parameter.ConstraintTypes)
+        {
+            if (constraint is not ITypeParameterSymbol
+                && (constraint.TypeKind != TypeKind.Interface || !Implements(@double, constraint.OriginalDefinition)))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool Implements(ITypeSymbol type, ITypeSymbol contract)
+    {
+        foreach (var candidate in type.AllInterfaces)
+        {
+            if (SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, contract))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     // In C# every IBinaryOperation is bound from a BinaryExpressionSyntax; tuple equality and patterns have operations of their own.
     private static string OperatorText(IBinaryOperation binary) => ((BinaryExpressionSyntax)binary.Syntax).OperatorToken.Text;

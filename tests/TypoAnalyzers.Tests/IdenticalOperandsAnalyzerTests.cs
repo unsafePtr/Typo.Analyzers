@@ -278,6 +278,48 @@ public sealed class IdenticalOperandsAnalyzerTests
         """);
 
     [Fact]
+    public Task NoDiagnostics_ForNaNCheckOnOtherFloatingPointTypes() => Verify.VerifyAsync(
+        """
+        using System;
+        using System.Numerics;
+        using System.Runtime.InteropServices;
+
+        public static class C
+        {
+            public static bool IsNaNHalf(Half h) => h != h;
+
+            public static bool IsNotNaNHalf(Half? h) => h == h;
+
+            public static bool IsNaNNative(NFloat f) => f != f;
+
+            public static bool IsNaNIeee<T>(T x) where T : IFloatingPointIeee754<T> => x != x;
+
+            public static bool IsNaNNumber<T>(T x) where T : INumber<T> => x != x;
+
+            public static bool IsNotNaNNullable<T>(T? x) where T : struct, INumber<T> => x == x;
+        }
+        """);
+
+    [Fact]
+    public Task SelfComparisonOfValuesThatCannotBeNaN() => Verify.VerifyAsync(
+        """
+        using System;
+        using System.Numerics;
+
+        public static class C
+        {
+            public static bool Integer<T>(T a) where T : IBinaryInteger<T> => {|#1:a|} != {|#0:a|};
+
+            public static bool Reference<T>(T a) where T : class => {|#3:a|} == {|#2:a|};
+
+            public static bool Wide(Int128 a) => {|#5:a|} != {|#4:a|};
+        }
+        """,
+        Repeat("a", "a", "!=", 0, 1),
+        Repeat("a", "a", "==", 2, 3),
+        Repeat("a", "a", "!=", 4, 5));
+
+    [Fact]
     public Task NoDiagnostics_ForLegitimatePatterns() => Verify.VerifyAsync(
         """
         using System.IO;
