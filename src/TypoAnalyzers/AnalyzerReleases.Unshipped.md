@@ -12,3 +12,4 @@ TYPO0004 | Correctness | Warning | RepeatedConditionAnalyzer
 TYPO0005 | Correctness | Warning | RepeatedConditionAnalyzer
 TYPO0006 | Correctness | Warning | IdenticalBranchesAnalyzer
 TYPO0007 | Correctness | Warning | IdenticalBranchesAnalyzer
+TYPO0008 | Correctness | Warning | RepeatedAssignmentAnalyzer

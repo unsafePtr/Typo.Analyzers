@@ -68,4 +68,13 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "Two cases of a switch, or two branches of an if-else chain, have identical bodies. When the bodies are meant to differ by one value, the copy was usually not edited; otherwise merge the labels.");
+
+    public static readonly DiagnosticDescriptor OverwrittenBeforeUse = new(
+        id: "TYPO0008",
+        title: "Value overwritten before it is used",
+        messageFormat: "'{0}' is assigned again before its previous value is used",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "The same field, property or element is assigned twice in a row with nothing reading it in between. The second assignment was usually meant for a different target.");
 }
