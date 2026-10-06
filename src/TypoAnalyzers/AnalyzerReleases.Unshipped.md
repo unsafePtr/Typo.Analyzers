@@ -5,3 +5,4 @@
 
 Rule ID | Category | Severity | Notes
 --------|----------|----------|-------
+TYPO0001 | Correctness | Warning | IdenticalOperandsAnalyzer
