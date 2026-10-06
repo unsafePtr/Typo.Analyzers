@@ -22,7 +22,7 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A value is passed to its own comparison method, or both arguments of a comparison are the same, so the result is constant. Comparison methods are often copied and the 'other' side left unedited.");
+        description: "A value is passed to its own comparison or string search method, or both arguments of a comparison are the same, so the result is constant. Comparison methods are often copied and the 'other' side left unedited.");
 
     public static readonly DiagnosticDescriptor RepeatedElseIfCondition = new(
         id: "TYPO0003",
@@ -35,12 +35,12 @@ internal static class Descriptors
 
     public static readonly DiagnosticDescriptor RepeatedAdjacentCondition = new(
         id: "TYPO0004",
-        title: "Adjacent 'if' statements with the same condition",
+        title: "'if' statement repeats the condition of an earlier one",
         messageFormat: "Condition '{0}' is identical to the condition of the preceding 'if' statement",
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "Two consecutive 'if' statements test the same condition and nothing in between can change it. Either the second one was meant to test something else, or the two should be merged.");
+        description: "An 'if' statement tests the same condition as the 'if' right before it, or as an earlier 'if' that always returns, throws or jumps away, and nothing in between can change it. Either the later one was meant to test something else, or the two should be merged.");
 
     public static readonly DiagnosticDescriptor RepeatedNestedCondition = new(
         id: "TYPO0005",
@@ -81,11 +81,11 @@ internal static class Descriptors
     public static readonly DiagnosticDescriptor ConstantIndexInLoop = new(
         id: "TYPO0009",
         title: "Loop always reads the same element",
-        messageFormat: "The loop over '{0}' never uses '{1}' and always reads '{2}'",
+        messageFormat: "The loop over '{0}' never indexes it with '{1}' and always reads '{2}'",
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A for loop iterates over a collection, but its body indexes the collection with a constant and never uses the loop variable.");
+        description: "A for loop iterates over a collection, but its body indexes the collection with a constant and uses the loop variable, if at all, only to index other collections.");
 
     public static readonly DiagnosticDescriptor StringCaseMismatch = new(
         id: "TYPO0010",

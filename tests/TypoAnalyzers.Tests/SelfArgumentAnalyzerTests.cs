@@ -77,6 +77,18 @@ public sealed class SelfArgumentAnalyzerTests
         """,
         Self("name", "Equals"));
 
+    [Theory]
+    [InlineData("StartsWith")]
+    [InlineData("EndsWith")]
+    public Task StringSearchedForItself(string method) => Verify.VerifyAsync(
+        $$"""
+        public static class C
+        {
+            public static bool M(string prefix) => {|#1:prefix|}.{{method}}({|#0:prefix|}, System.StringComparison.Ordinal);
+        }
+        """,
+        Self("prefix", method));
+
     [Fact]
     public Task NoDiagnostics_ForLegitimateCalls() => Verify.VerifyAsync(
         """
@@ -99,6 +111,8 @@ public sealed class SelfArgumentAnalyzerTests
             public static bool TwoCalls() => Next().Equals(Next());
 
             public static int Max(int a, int b) => System.Math.Max(a, b);
+
+            public static bool Search(string text, string word) => text.Contains(word) || text.StartsWith(word);
         }
 
         public sealed class Version : System.IComparable<Version>
@@ -108,4 +122,106 @@ public sealed class SelfArgumentAnalyzerTests
             public int Implicit(Version other) => CompareTo(other);
         }
         """);
+
+    [Fact]
+    public Task Starlight_MaxOfSameTileSize() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public class NavmeshBase
+        {
+            public float TileWorldSizeX { get; set; }
+            public float TileWorldSizeZ { get; set; }
+
+            public int GetNearestForce(float bestDistance, int wmax)
+            {
+                var found = wmax;
+                for (int w = 0; w < wmax; w++)
+                {
+                    if (bestDistance < (w - 2) * Math.Max({|#1:TileWorldSizeX|}, {|#0:TileWorldSizeX|}))
+                    {
+                        found = w;
+                        break;
+                    }
+                }
+
+                return found;
+            }
+        }
+        """,
+        Self("TileWorldSizeX", "Max"));
+
+    [Fact]
+    public Task PascalAbc_CompareWithSameListElement() => Verify.VerifyAsync(
+        """
+        using System.Collections.Generic;
+
+        public class SymScope
+        {
+            public virtual bool IsEqual(SymScope ts) => false;
+        }
+
+        public class EnumScope : SymScope
+        {
+            private List<string> enum_consts = new List<string>();
+
+            public override bool IsEqual(SymScope ts)
+            {
+                EnumScope es = ts as EnumScope;
+                if (es == null)
+                {
+                    return false;
+                }
+
+                if (enum_consts.Count != es.enum_consts.Count)
+                {
+                    return false;
+                }
+
+                for (int i = 0; i < es.enum_consts.Count; i++)
+                {
+                    if (string.Compare({|#1:enum_consts[i]|}, {|#0:this.enum_consts[i]|}, true) != 0)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+        """,
+        Self("this.enum_consts[i]", "Compare"));
+
+    [Fact]
+    public Task AwsSdk_ContainsWithItself() => Verify.VerifyAsync(
+        """
+        using System;
+        using System.Collections.Generic;
+
+        public sealed class CustomEvent
+        {
+            private readonly object _lock = new object();
+            private readonly Dictionary<string, string> _attributes = new Dictionary<string, string>();
+
+            public string GetAttribute(string attributeName)
+            {
+                if (string.IsNullOrEmpty(attributeName))
+                {
+                    throw new ArgumentNullException("attributeName");
+                }
+
+                string ret = null;
+                lock (_lock)
+                {
+                    if ({|#1:attributeName|}.Contains({|#0:attributeName|}))
+                    {
+                        ret = _attributes[attributeName];
+                    }
+                }
+
+                return ret;
+            }
+        }
+        """,
+        Self("attributeName", "Contains"));
 }

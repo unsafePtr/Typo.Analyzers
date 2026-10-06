@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.Operations;
 namespace TypoAnalyzers.Core;
 
 /// <summary>
-/// Semantic structural equality of operation trees: <c>this.X</c> equals <c>X</c>, implicit conversions are ignored, and commutative operators match in either order.
+/// Semantic structural equality of operation trees: <c>this.X</c> equals <c>X</c>, implicit conversions are ignored, commutative operators match in either order, and <c>a &lt; b</c> matches <c>b &gt; a</c>.
 /// </summary>
 /// <remarks>
 /// Unknown operation kinds compare as different, so new language constructs can only cause missed reports, never false ones.
@@ -80,10 +80,16 @@ internal static class OperationEquivalence
 
             case IBinaryOperation binary:
             {
+                var kind = binary.OperatorKind;
                 var left = Hash(binary.LeftOperand, next);
                 var right = Hash(binary.RightOperand, next);
-                hash = Mix(hash, (int)binary.OperatorKind);
-                return IsCommutative(binary.OperatorKind) ? Mix(hash, unchecked(left + right)) : Mix(Mix(hash, left), right);
+                if (kind is BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual)
+                {
+                    (kind, left, right) = (Mirror(kind), right, left);
+                }
+
+                hash = Mix(hash, (int)kind);
+                return IsCommutative(kind) ? Mix(hash, unchecked(left + right)) : Mix(Mix(hash, left), right);
             }
 
             case IUnaryOperation unary:
@@ -222,13 +228,17 @@ internal static class OperationEquivalence
             case IBinaryOperation binary:
             {
                 var other = (IBinaryOperation)y;
-                if (binary.OperatorKind != other.OperatorKind || !SymbolEqualityComparer.Default.Equals(binary.OperatorMethod, other.OperatorMethod))
+                if (binary.OperatorKind == other.OperatorKind && SymbolEqualityComparer.Default.Equals(binary.OperatorMethod, other.OperatorMethod))
                 {
-                    return false;
+                    return (AreEquivalent(binary.LeftOperand, other.LeftOperand, next) && AreEquivalent(binary.RightOperand, other.RightOperand, next))
+                        || (IsCommutative(binary.OperatorKind) && AreEquivalent(binary.LeftOperand, other.RightOperand, next) && AreEquivalent(binary.RightOperand, other.LeftOperand, next));
                 }
 
-                return (AreEquivalent(binary.LeftOperand, other.LeftOperand, next) && AreEquivalent(binary.RightOperand, other.RightOperand, next))
-                    || (IsCommutative(binary.OperatorKind) && AreEquivalent(binary.LeftOperand, other.RightOperand, next) && AreEquivalent(binary.RightOperand, other.LeftOperand, next));
+                return Mirror(binary.OperatorKind) is var mirrored and not BinaryOperatorKind.None
+                    && mirrored == other.OperatorKind
+                    && AreMirrorOperators(binary.OperatorMethod, other.OperatorMethod)
+                    && AreEquivalent(binary.LeftOperand, other.RightOperand, next)
+                    && AreEquivalent(binary.RightOperand, other.LeftOperand, next);
             }
 
             case IUnaryOperation unary:
@@ -400,6 +410,30 @@ internal static class OperationEquivalence
         or BinaryOperatorKind.ConditionalOr
         or BinaryOperatorKind.Equals
         or BinaryOperatorKind.NotEquals;
+
+    private static BinaryOperatorKind Mirror(BinaryOperatorKind kind) => kind switch
+    {
+        BinaryOperatorKind.LessThan => BinaryOperatorKind.GreaterThan,
+        BinaryOperatorKind.GreaterThan => BinaryOperatorKind.LessThan,
+        BinaryOperatorKind.LessThanOrEqual => BinaryOperatorKind.GreaterThanOrEqual,
+        BinaryOperatorKind.GreaterThanOrEqual => BinaryOperatorKind.LessThanOrEqual,
+        _ => BinaryOperatorKind.None,
+    };
+
+    // C# makes a type declare '<' with '>' and '<=' with '>='; like getters, they are trusted to agree.
+    private static bool AreMirrorOperators(IMethodSymbol? x, IMethodSymbol? y)
+    {
+        if (x is null || y is null)
+        {
+            return x is null && y is null;
+        }
+
+        return SymbolEqualityComparer.Default.Equals(x.ContainingType, y.ContainingType)
+            && x.Parameters.Length == 2
+            && y.Parameters.Length == 2
+            && SameType(x.Parameters[0].Type, y.Parameters[1].Type)
+            && SameType(x.Parameters[1].Type, y.Parameters[0].Type);
+    }
 
     private static bool SameConstant(IOperation x, IOperation y) =>
         SameType(x.Type, y.Type) && x.ConstantValue.HasValue && y.ConstantValue.HasValue && Equals(x.ConstantValue.Value, y.ConstantValue.Value);

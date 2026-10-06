@@ -238,6 +238,21 @@ public sealed class StringCaseAnalyzerTests
         Mismatch("\"A\"", "lower"));
 
     [Fact]
+    public Task ExpressionBodiedPropertyNeedle() => Verify.VerifyAsync(
+        """
+        public static class Keys
+        {
+            public static string Header => "X-Token";
+        }
+
+        public static class C
+        {
+            public static bool M(string header) => header.ToLowerInvariant() == {|#0:Keys.Header|};
+        }
+        """,
+        Mismatch("Keys.Header", "lower"));
+
+    [Fact]
     public Task NoDiagnostics_WhenValueIsNotCaseNormalized() => Verify.VerifyAsync(
         """
         using System.Collections.Generic;
@@ -301,6 +316,71 @@ public sealed class StringCaseAnalyzerTests
                 lower = s;
                 return lower == "Abc";
             }
+
+            public static bool OverridableProperty(string s, Folder folder) => s.ToLower().EndsWith(folder.Name);
+
+            public static bool ComputedProperty(string s) => s.ToLower().EndsWith(Folder.Computed);
+        }
+
+        public class Folder
+        {
+            public static string Computed => "App_" + System.Environment.MachineName;
+
+            public virtual string Name => "App_Data";
         }
         """);
+
+    [Fact]
+    public Task DotNetNuke_LoweredPathSearchedForCamelCaseKey() => Verify.VerifyAsync(
+        """
+        public sealed class UrlAction
+        {
+            public string RewritePath { get; set; }
+        }
+
+        public sealed class AdvancedUrlRewriter
+        {
+            public void ProcessRequest(UrlAction result)
+            {
+                if (!result.RewritePath.ToLowerInvariant().Contains({|#0:"tabId="|}))
+                {
+                    result.RewritePath += "&tabId=0";
+                }
+            }
+        }
+        """,
+        Mismatch("\"tabId=\"", "lower"));
+
+    [Fact]
+    public Task DotNetNuke_LoweredPathEndsWithPropertyReturningMixedCase() => Verify.VerifyAsync(
+        """
+        using System.IO;
+
+        public static class Localization
+        {
+            public static string LocalResourceDirectory
+            {
+                get
+                {
+                    return "App_LocalResources";
+                }
+            }
+        }
+
+        public static class LanguagesController
+        {
+            public static bool HasLocalResources(string path)
+            {
+                var folderInfo = new DirectoryInfo(path);
+
+                if (path.ToLowerInvariant().EndsWith({|#0:Localization.LocalResourceDirectory|}))
+                {
+                    return true;
+                }
+
+                return folderInfo.Exists;
+            }
+        }
+        """,
+        Mismatch("Localization.LocalResourceDirectory", "lower"));
 }

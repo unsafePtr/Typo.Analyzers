@@ -1256,4 +1256,537 @@ public sealed class SimilarRunAnalyzerTests
         PairInEverySource,
         options,
         [.. reported.Select(location => Pair("b.X", "b.Y", location)), Anomaly("b.Y", "b.Z", 5)]);
+
+    [Fact]
+    public Task Avalonia_LastRadiusCopiesPreviousOne() => Verify.VerifyAsync(
+        """
+        public readonly struct RelativePoint
+        {
+        }
+
+        public sealed class RadialGradientBrush
+        {
+            public RelativePoint Center { get; set; }
+            public RelativePoint GradientOrigin { get; set; }
+            public double RadiusX { get; set; }
+            public double RadiusY { get; set; }
+        }
+
+        public sealed class ImmutableRadialGradientBrush
+        {
+            public ImmutableRadialGradientBrush(RadialGradientBrush source)
+            {
+                Center = source.Center;
+                GradientOrigin = source.GradientOrigin;
+                RadiusX = source.RadiusX;
+                RadiusY = {|#0:source.RadiusX|};
+            }
+
+            public RelativePoint Center { get; }
+            public RelativePoint GradientOrigin { get; }
+            public double RadiusX { get; }
+            public double RadiusY { get; }
+        }
+        """,
+        Anomaly("source.RadiusX", "source.RadiusY"));
+
+    [Fact]
+    public Task AzureSdk_EqualsComparesLanguageWithEncoding() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public enum SasProtocol
+        {
+            None,
+            Https,
+        }
+
+        public readonly record struct SasIPRange(string Start, string End);
+
+        public struct FileSasBuilder : IEquatable<FileSasBuilder>
+        {
+            public string CacheControl { get; set; }
+            public string ContentDisposition { get; set; }
+            public string ContentEncoding { get; set; }
+            public string ContentLanguage { get; set; }
+            public string ContentType { get; set; }
+            public DateTimeOffset ExpiryTime { get; set; }
+            public string FilePath { get; set; }
+            public string Identifier { get; set; }
+            public SasIPRange IPRange { get; set; }
+            public string Permissions { get; set; }
+            public SasProtocol Protocol { get; set; }
+            public string ShareName { get; set; }
+            public DateTimeOffset StartTime { get; set; }
+            public string Version { get; set; }
+
+            public bool Equals(FileSasBuilder other)
+                => CacheControl == other.CacheControl
+                && ContentDisposition == other.ContentDisposition
+                && ContentEncoding == other.ContentEncoding
+                && ContentLanguage == {|#0:other.ContentEncoding|}
+                && ContentType == other.ContentType
+                && ExpiryTime == other.ExpiryTime
+                && FilePath == other.FilePath
+                && Identifier == other.Identifier
+                && IPRange == other.IPRange
+                && Permissions == other.Permissions
+                && Protocol == other.Protocol
+                && ShareName == other.ShareName
+                && StartTime == other.StartTime
+                && Version == other.Version
+                ;
+        }
+        """,
+        Anomaly("other.ContentEncoding", "other.ContentLanguage"));
+
+    [Fact]
+    public Task Mono_EqualsComparesBaseValueWithFrequency() => Verify.VerifyAsync(
+        """
+        public enum PerformanceCounterType
+        {
+            NumberOfItems32,
+            RawFraction,
+        }
+
+        public struct CounterSample
+        {
+            private long rawValue;
+            private long baseValue;
+            private long counterFrequency;
+            private long systemFrequency;
+            private long timeStamp;
+            private long timeStamp100nSec;
+            private long counterTimeStamp;
+            private PerformanceCounterType counterType;
+
+            public bool Equals(CounterSample other)
+            {
+                return
+                    rawValue         == other.rawValue         &&
+                    baseValue        == {|#0:other.counterFrequency|} &&
+                    counterFrequency == other.counterFrequency &&
+                    systemFrequency  == other.systemFrequency  &&
+                    timeStamp        == other.timeStamp        &&
+                    timeStamp100nSec == other.timeStamp100nSec &&
+                    counterTimeStamp == other.counterTimeStamp &&
+                    counterType      == other.counterType;
+            }
+        }
+        """,
+        Anomaly("other.counterFrequency", "other.baseValue"));
+
+    [Fact]
+    public Task OpenRa_LastResizeReadsPreviousLayer() => Verify.VerifyAsync(
+        """
+        public readonly struct MPos
+        {
+            public static readonly MPos Zero = default;
+        }
+
+        public readonly struct Size
+        {
+            public Size(int width, int height)
+            {
+            }
+        }
+
+        public sealed class CellLayer<T>
+        {
+            public T this[MPos pos] => default!;
+        }
+
+        public static class CellLayer
+        {
+            public static CellLayer<T> Resize<T>(CellLayer<T> layer, Size newSize, T defaultValue) => layer;
+        }
+
+        public sealed class TerrainTile
+        {
+        }
+
+        public sealed class ResourceTile
+        {
+        }
+
+        public sealed class Map
+        {
+            public CellLayer<TerrainTile> Tiles { get; set; }
+            public CellLayer<ResourceTile> Resources { get; set; }
+            public CellLayer<byte> Height { get; set; }
+            public CellLayer<byte> Ramp { get; set; }
+
+            public void Resize(int width, int height)
+            {
+                var oldMapTiles = Tiles;
+                var oldMapResources = Resources;
+                var oldMapHeight = Height;
+                var oldMapRamp = Ramp;
+                var newSize = new Size(width, height);
+
+                Tiles = CellLayer.Resize(oldMapTiles, newSize, oldMapTiles[MPos.Zero]);
+                Resources = CellLayer.Resize(
+                    oldMapResources,
+                    newSize,
+                    oldMapResources[MPos.Zero]
+                );
+                Height = CellLayer.Resize(oldMapHeight, newSize, oldMapHeight[MPos.Zero]);
+                Ramp = CellLayer.Resize(oldMapRamp, newSize, {|#0:oldMapHeight|}[MPos.Zero]);
+            }
+        }
+        """,
+        Anomaly("oldMapHeight", "oldMapRamp"));
+
+    [Fact]
+    public Task NorthStar_ReactionStrengthCopiesMovementStrength() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public enum ComfortLevel
+        {
+            Low,
+            High,
+        }
+
+        [Serializable]
+        public struct ComfortPreset
+        {
+            public float BoatMovementStrength;
+            public float BoatReactionStrength;
+        }
+
+        public sealed class GlobalSettings
+        {
+            public ComfortPreset[] ComfortPresets = new ComfortPreset[2];
+            public ComfortLevel ComfortLevel;
+            public float BoatMovementStrength;
+            public float BoatReactionStrength;
+
+            public event Action<ComfortLevel> OnComfortLevelChanged;
+
+            public void ComfortLevelChanged()
+            {
+                OnComfortLevelChanged?.Invoke(ComfortLevel);
+                var comfortPreset = ComfortPresets[(int)ComfortLevel];
+                BoatMovementStrength = comfortPreset.BoatMovementStrength;
+                BoatReactionStrength = {|#0:comfortPreset.BoatMovementStrength|};
+            }
+        }
+        """,
+        Pair("comfortPreset.BoatMovementStrength", "comfortPreset.BoatReactionStrength"));
+
+    [Fact]
+    public Task Jellyfin_HeightFallsBackToWidth() => Verify.VerifyAsync(
+        """
+        public sealed class MediaStream
+        {
+            public int? Width { get; set; }
+            public int? Height { get; set; }
+        }
+
+        public static class FFProbeVideoInfo
+        {
+            public static void FetchBdInfo(MediaStream blurayVideoStream, MediaStream ffmpegVideoStream)
+            {
+                if (blurayVideoStream is not null && ffmpegVideoStream is not null)
+                {
+                    blurayVideoStream.Width = blurayVideoStream.Width.GetValueOrDefault()
+                          == 0 ? ffmpegVideoStream.Width : blurayVideoStream.Width;
+
+                    blurayVideoStream.Height = blurayVideoStream.Height.GetValueOrDefault()
+                          == 0 ? {|#0:ffmpegVideoStream.Width|} : blurayVideoStream.Height;
+                }
+            }
+        }
+        """,
+        Pair("ffmpegVideoStream.Width", "ffmpegVideoStream.Height"));
+
+    [Fact]
+    public Task NBitcoin_SecondMaskReadsFirstHash() => Verify.VerifyAsync(
+        """
+        public interface IHasForkId
+        {
+        }
+
+        public class Transaction
+        {
+        }
+
+        public sealed class PSBTInput
+        {
+            private Transaction GetTransaction() => new();
+
+            public bool SameSigHash(uint a, uint b)
+            {
+                if (a == b)
+                {
+                    return true;
+                }
+
+                if (GetTransaction() is not IHasForkId)
+                {
+                    return false;
+                }
+
+                a = ((uint)a & ~(0x40u));
+                b = ((uint){|#0:a|} & ~(0x40u));
+                return a == b;
+            }
+        }
+        """,
+        Pair("a", "b"));
+
+    [Fact]
+    public Task NorthStar_CurrentFrameKeepsPreviousTime() => Verify.VerifyAsync(
+        """
+        public struct Vector3
+        {
+            public static Vector3 operator +(Vector3 a, Vector3 b) => a;
+        }
+
+        public struct Frame
+        {
+            public Vector3 Position;
+            public float Time;
+        }
+
+        public sealed class NPC_DynamicRigs
+        {
+            private Frame m_previousFrame;
+            private Frame m_currentFrame;
+
+            public void OffsetVerlet(Vector3 offset)
+            {
+                m_previousFrame = new Frame
+                {
+                    Position = m_previousFrame.Position + offset,
+                    Time = m_previousFrame.Time,
+                };
+                m_currentFrame = new Frame
+                {
+                    Position = m_currentFrame.Position + offset,
+                    Time = {|#0:m_previousFrame|}.Time,
+                };
+            }
+        }
+        """,
+        Pair("m_previousFrame", "m_currentFrame"));
+
+    [Fact]
+    public Task StabilityMatrix_LastClipChecksPreviousName() => Verify.VerifyAsync(
+        """
+        using System.Collections.Generic;
+        using System.Linq;
+
+        public sealed class HybridModelFile
+        {
+            public static readonly HybridModelFile Default = new();
+            public static readonly HybridModelFile None = new();
+
+            public string RelativePath { get; set; }
+        }
+
+        public sealed class ClientManager
+        {
+            public List<HybridModelFile> VaeModels { get; } = new();
+            public List<HybridModelFile> Models { get; } = new();
+            public List<HybridModelFile> ClipModels { get; } = new();
+        }
+
+        public sealed class ModelCardModel
+        {
+            public string SelectedVaeName { get; set; }
+            public string SelectedRefinerName { get; set; }
+            public string SelectedClip1Name { get; set; }
+            public string SelectedClip2Name { get; set; }
+            public string SelectedClip3Name { get; set; }
+            public string SelectedClip4Name { get; set; }
+        }
+
+        public sealed class ModelCardViewModel
+        {
+            public ClientManager ClientManager { get; } = new();
+            public HybridModelFile SelectedVae { get; set; }
+            public HybridModelFile SelectedRefiner { get; set; }
+            public HybridModelFile SelectedClip1 { get; set; }
+            public HybridModelFile SelectedClip2 { get; set; }
+            public HybridModelFile SelectedClip3 { get; set; }
+            public HybridModelFile SelectedClip4 { get; set; }
+
+            public void LoadStateFromJsonObject(ModelCardModel model)
+            {
+                SelectedVae = model.SelectedVaeName is null
+                          ? HybridModelFile.Default
+                          : ClientManager.VaeModels.FirstOrDefault(x => x.RelativePath ==
+                model.SelectedVaeName);
+
+                SelectedRefiner = model.SelectedRefinerName is null
+                              ? HybridModelFile.None
+                              : ClientManager.Models.FirstOrDefault(x => x.RelativePath ==
+                model.SelectedRefinerName);
+
+                SelectedClip1 = model.SelectedClip1Name is null
+                            ? HybridModelFile.None
+                            : ClientManager.ClipModels.FirstOrDefault(x => x.RelativePath ==
+                model.SelectedClip1Name);
+
+                SelectedClip2 = model.SelectedClip2Name is null
+                            ? HybridModelFile.None
+                            : ClientManager.ClipModels.FirstOrDefault(x => x.RelativePath ==
+                model.SelectedClip2Name);
+
+                SelectedClip3 = model.SelectedClip3Name is null
+                            ? HybridModelFile.None
+                            : ClientManager.ClipModels.FirstOrDefault(x => x.RelativePath ==
+                model.SelectedClip3Name);
+
+                SelectedClip4 = {|#0:model.SelectedClip3Name|} is null
+                            ? HybridModelFile.None
+                            : ClientManager.ClipModels.FirstOrDefault(x => x.RelativePath ==
+                model.SelectedClip4Name);
+            }
+        }
+        """,
+        Anomaly("model.SelectedClip3Name", "model.SelectedClip4Name"));
+
+    [Fact]
+    public Task NasaWorldWind_ConstructorWritesXTwice() => Verify.VerifyAsync(
+        """
+        public sealed class Point3d
+        {
+            public double X;
+            public double Y;
+            public double Z;
+
+            public Point3d(Point3d P)
+            {
+                X = P.X;
+                Y = P.Y;
+                {|#0:X|} = P.Z;
+            }
+        }
+        """,
+        Anomaly("X", "Z"));
+
+    [Fact]
+    public Task OpenCvSharp_TemplateSizePassedForTemporalSize() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class Mat
+        {
+            public IntPtr CvPtr => IntPtr.Zero;
+        }
+
+        internal static class NativeMethods
+        {
+            public static void photo_fastNlMeansDenoisingMulti(
+                IntPtr[] srcImgs,
+                int srcImgsLength,
+                IntPtr dst,
+                int imgToDenoiseIndex,
+                int temporalWindowSize,
+                float h,
+                int templateWindowSize,
+                int searchWindowSize)
+            {
+            }
+        }
+
+        public static class Cv2
+        {
+            public static void FastNlMeansDenoisingMulti(
+                IntPtr[] srcImgPtrs,
+                Mat dst,
+                int imgToDenoiseIndex,
+                int temporalWindowSize,
+                float h = 3,
+                int templateWindowSize = 7,
+                int searchWindowSize = 21)
+            {
+                NativeMethods.photo_fastNlMeansDenoisingMulti(
+                    srcImgPtrs,
+                    srcImgPtrs.Length,
+                    dst.CvPtr,
+                    imgToDenoiseIndex,
+                    {|#0:templateWindowSize|},
+                    h,
+                    templateWindowSize,
+                    searchWindowSize);
+            }
+        }
+        """,
+        Anomaly("templateWindowSize", "temporalWindowSize"));
+
+    [Fact]
+    public Task RepoDb_FieldsPassedAsQualifiers() => Verify.VerifyAsync(
+        """
+        using System.Collections.Generic;
+        using System.Data;
+        using System.Threading;
+        using System.Threading.Tasks;
+
+        public sealed class Field
+        {
+        }
+
+        public interface ITrace
+        {
+        }
+
+        public interface IStatementBuilder
+        {
+        }
+
+        public static class DbConnectionExtension
+        {
+            private static Task<int> UpdateAllAsyncInternal<TEntity>(
+                IDbConnection connection,
+                string tableName,
+                IEnumerable<TEntity> entities,
+                IEnumerable<Field> qualifiers,
+                int batchSize,
+                IEnumerable<Field> fields,
+                string hints,
+                int? commandTimeout,
+                string traceKey,
+                IDbTransaction transaction,
+                ITrace trace,
+                IStatementBuilder statementBuilder,
+                CancellationToken cancellationToken)
+                where TEntity : class => Task.FromResult(0);
+
+            public static Task<int> UpdateAllAsync<TEntity>(
+                this IDbConnection connection,
+                string tableName,
+                IEnumerable<TEntity> entities,
+                IEnumerable<Field> qualifiers,
+                int batchSize = 100,
+                IEnumerable<Field> fields = null,
+                string hints = null,
+                int? commandTimeout = null,
+                string traceKey = "UpdateAll",
+                IDbTransaction transaction = null,
+                ITrace trace = null,
+                IStatementBuilder statementBuilder = null,
+                CancellationToken cancellationToken = default)
+                where TEntity : class
+            {
+                return UpdateAllAsyncInternal<TEntity>(connection: connection,
+                    tableName: tableName,
+                    entities: entities,
+                    qualifiers: {|#0:fields|},
+                    batchSize: batchSize,
+                    fields: fields,
+                    hints: hints,
+                    commandTimeout: commandTimeout,
+                    traceKey: traceKey,
+                    transaction: transaction,
+                    trace: trace,
+                    statementBuilder: statementBuilder,
+                    cancellationToken: cancellationToken);
+            }
+        }
+        """,
+        Anomaly("fields", "qualifiers"));
 }

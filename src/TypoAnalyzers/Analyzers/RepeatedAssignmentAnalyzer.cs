@@ -52,6 +52,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeBlock(OperationAnalysisContext context, PurityOracle purity, HashSet<INamedTypeSymbol> collections)
     {
         var operations = ((IBlockOperation)context.Operation).Operations;
+        var constructor = context.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor } method ? method : null;
         for (var i = 0; i < operations.Length - 1; i++)
         {
             if (AsAssignment(operations[i]) is not { } first
@@ -61,6 +62,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
+            var writingConstructor = first.Target is IMemberReferenceOperation { Instance: IInstanceReferenceOperation } ? constructor : null;
             for (var k = i + 1; k < operations.Length; k++)
             {
                 if (AsAssignment(operations[k]) is not { } next)
@@ -70,7 +72,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
 
                 if (OperationEquivalence.AreEquivalent(first.Target, next.Target))
                 {
-                    if (!References(next.Value, symbol))
+                    if (!References(next.Value, symbol, writingConstructor))
                     {
                         context.ReportDiagnostic(Diagnostic.Create(
                             Descriptors.OverwrittenBeforeUse,
@@ -82,7 +84,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
                     break;
                 }
 
-                if (References(next, symbol) || CallsImpure(next, purity))
+                if (References(next, symbol, writingConstructor) || CallsImpure(next, purity))
                 {
                     break;
                 }
@@ -121,11 +123,12 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         return true;
     }
 
-    private static bool References(IOperation operation, ISymbol symbol)
+    // 'constructor' is set when the tracked write goes to this object inside a constructor; see ReadsOtherObject.
+    private static bool References(IOperation operation, ISymbol symbol, IMethodSymbol? constructor)
     {
         foreach (var descendant in operation.DescendantsAndSelf())
         {
-            if (SymbolEqualityComparer.Default.Equals(ReadSet.RootSymbol(descendant), symbol))
+            if (SymbolEqualityComparer.Default.Equals(ReadSet.RootSymbol(descendant), symbol) && !ReadsOtherObject(descendant, constructor))
             {
                 return true;
             }
@@ -134,16 +137,38 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
+    // A constructor's by-value parameters are bound before the object exists, so in a copy constructor 'other._x' never reads the '_x' being written.
+    private static bool ReadsOtherObject(IOperation reference, IMethodSymbol? constructor) =>
+        constructor is not null
+        && reference is IMemberReferenceOperation { Instance: { } instance }
+        && SkipConversions(instance) is IParameterReferenceOperation { Parameter: { RefKind: RefKind.None } parameter }
+        && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, constructor);
+
     private static bool CallsImpure(IOperation operation, PurityOracle purity)
     {
         foreach (var descendant in operation.DescendantsAndSelf())
         {
-            if (descendant is IInvocationOperation invocation && !purity.IsPure(invocation.TargetMethod))
+            if (descendant is IInvocationOperation invocation && !purity.IsPure(invocation.TargetMethod) && !FillsNewCollection(invocation))
             {
                 return true;
             }
         }
 
         return false;
+    }
+
+    // The Add calls of a collection initializer only fill the new framework collection, so they cannot touch the tracked target.
+    private static bool FillsNewCollection(IInvocationOperation invocation) =>
+        invocation.Instance is IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ImplicitReceiver }
+        && Framework.IsFrameworkValue(invocation.TargetMethod.ContainingType);
+
+    private static IOperation SkipConversions(IOperation operation)
+    {
+        while (operation is IConversionOperation conversion)
+        {
+            operation = conversion.Operand;
+        }
+
+        return operation;
     }
 }

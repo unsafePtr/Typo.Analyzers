@@ -7,7 +7,7 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0009: a for loop over a collection whose body reads <c>items[0]</c> and never uses the loop variable.
+/// TYPO0009: a for loop over a collection whose body reads <c>items[0]</c> and uses the loop variable, if at all, only to index other collections.
 /// </summary>
 /// <remarks>
 /// The collection comes from the bound (<c>i &lt; items.Length</c>, <c>i &lt;= items.Count - 1</c>) or, for reverse loops such as <c>for (var i = items.Length - 1; i &gt;= 0; i--)</c>, from the initializer.
@@ -45,7 +45,12 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
             switch (operation)
             {
                 case ILocalReferenceOperation reference when SymbolEqualityComparer.Default.Equals(reference.Local, index):
-                    return;
+                    if (!IndexesOtherCollection(reference, collection))
+                    {
+                        return;
+                    }
+
+                    break;
 
                 case IArrayElementReferenceOperation { Indices.Length: 1 } element
                     when constantAccess is null
@@ -71,6 +76,14 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
                 messageArgs: [collection.Syntax.ToString(), index.Name, constantAccess.Syntax.ToString()]));
         }
     }
+
+    // Walking another collection in step, as in 'a[0].Equals(b[i])', leaves the looped one stuck at a constant; any other use, such as 'i == 0', may be what makes the constant right.
+    private static bool IndexesOtherCollection(ILocalReferenceOperation reference, IOperation collection) => reference.Parent switch
+    {
+        IArrayElementReferenceOperation element => !OperationEquivalence.AreEquivalent(element.ArrayReference, collection),
+        IArgumentOperation { Parent: IPropertyReferenceOperation { Property.IsIndexer: true } indexer } => !OperationEquivalence.AreEquivalent(indexer.Instance, collection),
+        _ => false,
+    };
 
     private static IOperation? LoopedCollection(IForLoopOperation loop, IBinaryOperation comparison, ILocalSymbol index)
     {

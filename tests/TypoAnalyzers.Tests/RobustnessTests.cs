@@ -102,6 +102,28 @@ public sealed class RobustnessTests
     }
 
     [Fact]
+    public async Task LongRunsOfGuardClausesAreAnalyzed()
+    {
+        var guards = string.Concat(Enumerable.Range(0, 3000).Select(i => $"if (a == {i}) {{ return {i}; }}\n"));
+        var source = $$"""
+            public static class C
+            {
+                public static int M(int a)
+                {
+                    {{guards}}
+                    if (a == 0) { return -1; }
+                    return -2;
+                }
+            }
+            """;
+
+        var run = await AllAnalyzers.RunAsync(source, TestContext.Current.CancellationToken);
+
+        Assert.Empty(run.Exceptions);
+        Assert.Single(run.Diagnostics, diagnostic => diagnostic.Id == "TYPO0004");
+    }
+
+    [Fact]
     public async Task RecursiveHelpersStopAtTheDepthLimit()
     {
         var chain = string.Join(" || ", Enumerable.Range(0, 5000).Select(i => $"a == {i}"));

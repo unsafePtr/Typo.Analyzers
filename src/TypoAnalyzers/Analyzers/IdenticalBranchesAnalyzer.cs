@@ -12,7 +12,7 @@ namespace TypoAnalyzers.Analyzers;
 /// </summary>
 /// <remarks>
 /// Bodies are compared as syntax, which is exact for copy-paste because both copies sit in the same scope and bind to the same symbols.
-/// TYPO0007 ignores bodies without calls, object creation or assignments, since <c>A => true, B => true</c> is idiomatic, and bodies that only throw.
+/// TYPO0007 ignores bodies without calls, object or array creation or assignments, since <c>A => true, B => true</c> is idiomatic, and bodies that only throw.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
@@ -189,10 +189,14 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
         return true;
     }
 
-    // Pattern variables with the same name and type declared in different cases are interchangeable.
-    private static bool SameSymbol(ISymbol? x, ISymbol? y) =>
-        SymbolEqualityComparer.Default.Equals(x, y)
-        || (x is ILocalSymbol left && y is ILocalSymbol right && left.Name == right.Name && SymbolEqualityComparer.Default.Equals(left.Type, right.Type));
+    // Locals and lambda parameters declared inside each copy, such as pattern variables or the 'o' of 'o => GetValue(o)', are interchangeable when name and type match.
+    private static bool SameSymbol(ISymbol? x, ISymbol? y) => SymbolEqualityComparer.Default.Equals(x, y) || (x, y) switch
+    {
+        (ILocalSymbol left, ILocalSymbol right) => left.Name == right.Name && SymbolEqualityComparer.Default.Equals(left.Type, right.Type),
+        (IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.AnonymousFunction } } left, IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.AnonymousFunction } } right) =>
+            left.Name == right.Name && left.Ordinal == right.Ordinal && SymbolEqualityComparer.Default.Equals(left.Type, right.Type),
+        _ => false,
+    };
 
     private static string LabelText(SwitchLabelSyntax label) => label switch
     {
@@ -231,6 +235,8 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
         {
             if (descendant is InvocationExpressionSyntax
                 or BaseObjectCreationExpressionSyntax
+                or ArrayCreationExpressionSyntax
+                or ImplicitArrayCreationExpressionSyntax
                 or AssignmentExpressionSyntax
                 or PrefixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.PreIncrementExpression or (int)SyntaxKind.PreDecrementExpression }
                 or PostfixUnaryExpressionSyntax { RawKind: (int)SyntaxKind.PostIncrementExpression or (int)SyntaxKind.PostDecrementExpression })

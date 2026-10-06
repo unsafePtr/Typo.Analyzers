@@ -65,7 +65,10 @@ public sealed class CoreTests
         { "i + j", "j + i", true },
         { "i - j", "j - i", false },
         { "i == j", "j == i", true },
-        { "i < j", "j > i", false },
+        { "i < j", "j > i", true },
+        { "i <= j", "j >= i", true },
+        { "i < j", "j >= i", false },
+        { "i < j", "i > j", false },
         { "-i", "-i", true },
         { "-i", "~i", false },
         { "!(i > 0)", "!(i > 0)", true },
@@ -108,6 +111,8 @@ public sealed class CoreTests
         { "s != null", "s is not null", true },
         { "s == null", "s != null", false },
         { "i > 0", "i > 0", true },
+        { "i > 0", "0 < i", true },
+        { "s != null", "null != s", true },
     };
 
     public static TheoryData<string, string, bool> OppositeCases => new()
@@ -236,6 +241,10 @@ public sealed class CoreTests
         var (_, x, y) = await TwoExpressionsAsync(first, second);
 
         Assert.Equal(expected, Negation.AreSame(x, y));
+        if (expected)
+        {
+            Assert.Equal(Negation.GetHashCode(x), Negation.GetHashCode(y));
+        }
     }
 
     [Theory]

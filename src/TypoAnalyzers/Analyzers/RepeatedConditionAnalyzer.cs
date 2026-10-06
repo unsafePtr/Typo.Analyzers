@@ -9,7 +9,7 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0003 repeated condition in an if-else chain, TYPO0004 adjacent 'if' statements with the same condition, TYPO0005 nested 'if' repeating an enclosing check.
+/// TYPO0003 repeated condition in an if-else chain, TYPO0004 an 'if' repeating the condition of the preceding one or of an earlier one that always exits, TYPO0005 nested 'if' repeating an enclosing check.
 /// </summary>
 /// <remarks>
 /// All three share the "equivalent condition, and nothing in between can change it" question, which is why they live in one analyzer.
@@ -17,6 +17,9 @@ namespace TypoAnalyzers.Analyzers;
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
 {
+    [ThreadStatic]
+    private static List<int>? t_hashes;
+
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } =
     [
         Descriptors.RepeatedElseIfCondition,
@@ -171,27 +174,72 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
         }
     }
 
+    // After an 'if' that always exits, control only reaches the following statements when its condition was false, so a later 'if' repeating it is dead even with statements in between.
     private static void AnalyzeBlock(OperationAnalysisContext context, PurityOracle purity)
     {
         var operations = ((IBlockOperation)context.Operation).Operations;
-        for (var i = 1; i < operations.Length; i++)
+        if (operations.Length < 2)
         {
-            if (operations[i - 1] is not IConditionalOperation { Syntax: IfStatementSyntax, WhenFalse: null } first
-                || operations[i] is not IConditionalOperation { Syntax: IfStatementSyntax } second)
+            return;
+        }
+
+        // Long runs of guard clauses would otherwise compare every pair of conditions in full.
+        var hashes = t_hashes ?? new List<int>(operations.Length);
+        t_hashes = null;
+        try
+        {
+            foreach (var operation in operations)
             {
-                continue;
+                hashes.Add(operation is IConditionalOperation { Syntax: IfStatementSyntax } conditional ? Negation.GetHashCode(conditional.Condition) : 0);
             }
 
-            if (!purity.IsFree(second.Condition) || !Negation.AreSame(first.Condition, second.Condition))
+            for (var i = 0; i < operations.Length - 1; i++)
             {
-                continue;
-            }
+                if (operations[i] is not IConditionalOperation { Syntax: IfStatementSyntax, WhenFalse: null } first)
+                {
+                    continue;
+                }
 
-            if (Jumps.AlwaysExits(first.WhenTrue) || !ReadSet.Of(first.Condition).MayBeChangedBy(first.WhenTrue, purity))
-            {
-                Report(context, Descriptors.RepeatedAdjacentCondition, second.Condition, first.Condition);
+                var exits = Jumps.AlwaysExits(first.WhenTrue);
+                var last = exits ? operations.Length - 1 : i + 1;
+                for (var k = i + 1; k <= last; k++)
+                {
+                    if (hashes[k] == hashes[i]
+                        && operations[k] is IConditionalOperation { Syntax: IfStatementSyntax } second
+                        && purity.IsFree(second.Condition)
+                        && Negation.AreSame(first.Condition, second.Condition))
+                    {
+                        var reads = ReadSet.Of(first.Condition);
+                        var changed = exits ? AnyMayChange(operations, i + 1, k, reads, purity) : reads.MayBeChangedBy(first.WhenTrue, purity);
+                        if (!changed)
+                        {
+                            Report(context, Descriptors.RepeatedAdjacentCondition, second.Condition, first.Condition);
+                        }
+
+                        break;
+                    }
+                }
             }
         }
+        finally
+        {
+            hashes.Clear();
+            t_hashes = hashes;
+        }
+    }
+
+    // A label lets a jump reach the later statements without passing the first check.
+    private static bool AnyMayChange(ImmutableArray<IOperation> operations, int start, int end, ReadSet reads, PurityOracle purity)
+    {
+        for (var k = start; k < end; k++)
+        {
+            if (operations[k] is ILabeledOperation || reads.MayBeChangedBy(operations[k], purity))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool IsChainRoot(IConditionalOperation conditional) =>

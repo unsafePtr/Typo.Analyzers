@@ -12,7 +12,7 @@ namespace TypoAnalyzers.Analyzers;
 /// </summary>
 /// <remarks>
 /// Covers ==, !=, Equals, Contains, StartsWith, EndsWith, IndexOf, LastIndexOf, Replace, 'is' patterns and switch cases.
-/// The text side may be a literal, a constant, an interpolated string or a concatenation; only its constant parts are checked, which is enough because each of them must appear verbatim.
+/// The text side may be a literal, a constant, a property whose getter returns a literal, an interpolated string or a concatenation; only its constant parts are checked, which is enough because each of them must appear verbatim.
 /// A local counts as case-normalized when its initializer is ToLower/ToUpper and nothing assigns it again.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -247,9 +247,30 @@ public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
             case IBinaryOperation { OperatorKind: BinaryOperatorKind.Add, Type.SpecialType: SpecialType.System_String } concatenation:
                 return HasConflictingLetter(concatenation.LeftOperand, target, depth + 1) || HasConflictingLetter(concatenation.RightOperand, target, depth + 1);
 
+            case IPropertyReferenceOperation property when LiteralReturnedBy(property.Property) is { } text:
+                return HasConflictingLetter(text, target);
+
             default:
                 return false;
         }
+    }
+
+    // A getter that only returns a literal, as in 'LocalResourceDirectory => "App_LocalResources"', is a constant unless an override can replace it.
+    private static string? LiteralReturnedBy(IPropertySymbol property)
+    {
+        if (property.IsVirtual || property.IsAbstract || property.IsOverride || property.GetMethod is not { DeclaringSyntaxReferences.Length: 1 } getter)
+        {
+            return null;
+        }
+
+        var returned = getter.DeclaringSyntaxReferences[0].GetSyntax() switch
+        {
+            ArrowExpressionClauseSyntax arrow => arrow.Expression,
+            AccessorDeclarationSyntax { ExpressionBody: { } arrow } => arrow.Expression,
+            AccessorDeclarationSyntax { Body.Statements: [ReturnStatementSyntax { Expression: { } expression }] } => expression,
+            _ => null,
+        };
+        return returned is LiteralExpressionSyntax { Token.Value: string text } ? text : null;
     }
 
     private static bool HasConflictingLetter(string text, Case target)

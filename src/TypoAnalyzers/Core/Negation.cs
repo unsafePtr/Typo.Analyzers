@@ -21,6 +21,14 @@ internal static class Negation
             && xIsNull == yIsNull
             && OperationEquivalence.AreEquivalent(xValue, yValue));
 
+    /// <summary>
+    /// A hash consistent with <see cref="AreSame"/>, so callers comparing many conditions only need the full check when hashes match.
+    /// </summary>
+    public static int GetHashCode(IOperation condition) =>
+        TryGetNullTest(condition, out var value, out var isNull)
+            ? unchecked((OperationEquivalence.GetHashCode(value) * 31) + (isNull ? 1 : 2))
+            : OperationEquivalence.GetHashCode(condition);
+
     public static bool AreOpposite(IOperation x, IOperation y)
     {
         x = Skip(x);
