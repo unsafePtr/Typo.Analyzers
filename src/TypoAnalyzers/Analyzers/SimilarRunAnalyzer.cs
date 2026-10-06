@@ -535,6 +535,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         return fragment;
     }
 
+    // A suggested local must already be declared, and a suggested member must be the same kind of member as the one it replaces.
     private static bool Exists(Slot slot, string expected)
     {
         switch (slot.Symbol)
@@ -543,21 +544,56 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                 return true;
 
             case ILocalSymbol or IParameterSymbol:
-                return slot.Operation.SemanticModel is { } model
-                    && !model.LookupSymbols(slot.Operation.Syntax.SpanStart, name: expected).IsEmpty;
-
-            default:
-                for (var type = slot.Symbol.ContainingType; type is not null; type = type.BaseType)
+            {
+                if (slot.Operation.SemanticModel is not { } model)
                 {
-                    if (!type.GetMembers(expected).IsEmpty)
+                    return false;
+                }
+
+                // Lookup also returns locals declared later in the block, which the line cannot have meant.
+                var position = slot.Operation.Syntax.SpanStart;
+                foreach (var symbol in model.LookupSymbols(position, name: expected))
+                {
+                    if (symbol is not ILocalSymbol local || DeclaredBefore(local, position))
                     {
                         return true;
                     }
                 }
 
                 return false;
+            }
+
+            default:
+                for (var type = slot.Symbol.ContainingType; type is not null; type = type.BaseType)
+                {
+                    foreach (var member in type.GetMembers(expected))
+                    {
+                        if (IsSameKind(slot.Symbol, member))
+                        {
+                            return true;
+                        }
+                    }
+                }
+
+                return false;
         }
     }
+
+    private static bool DeclaredBefore(ILocalSymbol local, int position)
+    {
+        foreach (var location in local.Locations)
+        {
+            if (location.IsInSource && location.SourceSpan.Start < position)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsSameKind(ISymbol reported, ISymbol suggested) =>
+        reported is IFieldSymbol or IPropertySymbol ? suggested is IFieldSymbol or IPropertySymbol : reported.Kind == suggested.Kind;
 
     private static void Report(OperationAnalysisContext context, Slot slot, string oddName, string expected)
     {

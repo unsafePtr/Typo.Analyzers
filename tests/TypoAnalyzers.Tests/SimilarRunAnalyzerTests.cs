@@ -534,4 +534,39 @@ public sealed class SimilarRunAnalyzerTests
             }
         }
         """);
+
+    [Fact]
+    public Task NoDiagnostics_WhenTheSuggestionIsNotUsable() => Verify.VerifyAsync(
+        """
+        public sealed class Methods
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Value() => 0;
+        }
+
+        public sealed class Target
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+            public int Value { get; set; }
+
+            public void SuggestionOfAnotherKind(Methods o)
+            {
+                X = o.X;
+                Y = o.Y;
+                Value = o.Y;
+            }
+
+            public void DeclaredLater(int x, int y)
+            {
+                X = x;
+                Y = y;
+                Z = y;
+                var z = 0;
+                Value = z;
+            }
+        }
+        """);
 }
