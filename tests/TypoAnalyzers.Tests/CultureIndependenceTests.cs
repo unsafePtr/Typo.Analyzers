@@ -32,6 +32,29 @@ public sealed class CultureIndependenceTests
             """,
             Verifier<Analyzers.SimilarRunAnalyzer>.Diagnostic(Descriptors.SimilarLineAnomaly).WithLocation(0).WithArguments("index", "items")));
 
+    // Culture-sensitive upper-casing of the 'i' in 'items' would suggest 's.İtems'.
+    [Fact]
+    public Task SimilarPairUnderTurkishCulture() => InTurkishAsync(() =>
+        Verifier<Analyzers.SimilarRunAnalyzer>.VerifyAsync(
+            """
+            public sealed class Store
+            {
+                public int Index;
+                public int Items;
+            }
+
+            public static class C
+            {
+                public static int Read(Store s)
+                {
+                    var index = s.Index;
+                    var items = {|#0:s.Index|};
+                    return index + items;
+                }
+            }
+            """,
+            Verifier<Analyzers.SimilarRunAnalyzer>.Diagnostic(Descriptors.SimilarPairAnomaly).WithLocation(0).WithArguments("s.Index", "s.Items")));
+
     [Fact]
     public Task StringCaseUnderTurkishCulture() => InTurkishAsync(() =>
         Verifier<Analyzers.StringCaseAnalyzer>.VerifyAsync(

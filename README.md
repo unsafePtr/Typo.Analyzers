@@ -17,6 +17,7 @@ Roslyn analyzers for copy-paste and typo bugs that the common open-source .NET a
 | TYPO0009 | LoopIndexAnalyzer | `for` loop over a collection (forward, `Count - 1` or reverse) that reads `[0]` and never uses the loop variable |
 | TYPO0010 | StringCaseAnalyzer | Lowercased or uppercased value compared with, or searched for, text with letters of the other case |
 | TYPO0011 | SimilarRunAnalyzer | One item of a run of three or more similar statements, declarations, conditions or arguments repeating a neighbour's name, as in `Z += other.Y`, `maxY = Math.Max(maxY, p.X)` or `new Rect(r.Left, r.Top, r.Right, r.Right)` (Info severity) |
+| TYPO0012 | SimilarRunAnalyzer | The second of two similar statements, declarations, conditions or arguments keeping a name built from the first one's word, as in `Height == other.Width`, `var minY = pts.Min(p => p.X)` or `new Vec(p.X, p.X)` (Info severity) |
 
 Every analyzer shares the core in `src/TypoAnalyzers/Core`:
 - `OperationEquivalence`: semantic expression equality, plus a matching hash.
@@ -40,8 +41,14 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 ## Known gaps
 
 - Identical one-line `else if` bodies without calls or assignments are skipped on purpose to avoid noise.
-- In TYPO0011, numeric literals that are not indexes count as table data and never form a pattern.
+- In TYPO0011 and TYPO0012, numeric literals that are not indexes count as table data and never form a pattern.
+- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;`, `new Size(b.Width, b.Width)` and swizzles `XX => new(X, X)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`.
+- TYPO0012 never pairs literal copies, all-lower-case compound names such as `dx` and `dy`, or names where one extends the other, such as `Name` and `DisplayName`.
+- TYPO0012 skips pairs that also differ in a number, framework values such as `float.MaxValue`, `Index.Start` or `Vector2.UnitX`, and names inside an access or call the second line already renamed.
+- TYPO0012 reports `f(x, x)` only when the `y` it should have been is never used, so a deliberate square such as `Multiply(x, x)` stays silent.
 - Declarations that read a local declared earlier in the same run, as in `f8 = f4 * f4; f12 = f8 * f4`, are steps of one computation and never form a run.
+- A shared receiver whose other names were renamed still fires, as in `LoadUnsafe(ref yRef, x.Length - n)` after a check that both spans have equal length.
+- Switch sections are not scanned for runs.
 - Swapped arguments matched by parameter name are left to Sonar S2234.
 
 ## Build and test

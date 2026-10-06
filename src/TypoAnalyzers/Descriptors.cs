@@ -104,4 +104,13 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
         description: "In a run of three or more similar statements, declarations, conditions or arguments, each item pairs matching names such as X with X and Y with Y, but one item repeats a name from another where a different one was expected. This heuristic is reported as a suggestion.");
+
+    public static readonly DiagnosticDescriptor SimilarPairAnomaly = new(
+        id: "TYPO0012",
+        title: "Probable unedited copy in a pair of similar lines",
+        messageFormat: "'{0}' looks like an unedited copy from the similar line or argument next to it; '{1}' was probably intended",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "Two adjacent similar statements, declarations, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011.");
 }

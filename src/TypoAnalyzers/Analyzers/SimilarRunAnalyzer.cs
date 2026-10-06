@@ -9,13 +9,16 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0011: in three or more consecutive similar lines or arguments, one item repeats a name from another where the pattern calls for a different one, as in <c>Z += other.Y</c> after <c>X += other.X; Y += other.Y;</c>.
+/// TYPO0011 and TYPO0012: in consecutive similar lines or arguments, one item repeats a name from another where the pattern calls for a different one, as in <c>Z += other.Y</c> after <c>X += other.X; Y += other.Y;</c>.
 /// </summary>
 /// <remarks>
 /// Each item becomes a shape hash plus its slots (symbol names and literals); consecutive items with the same shape form a run and their slots form columns.
 /// Declarations and arguments start with a key-only slot for the declared local or the parameter, which can identify an item but is never reported.
-/// A key column is one whose fragments (names minus the column's shared prefix and suffix) are all different, so they identify each item.
+/// In runs of three or more (TYPO0011), a key column is one whose fragments (names minus the column's shared prefix and suffix) are all different, so they identify each item.
 /// A second column that matches the key on every item but one, and repeats another item's fragment on that one, is reported.
+/// In a pair (TYPO0012) a changed column can never repeat another item, so the copy is a column that stays the same while the key is renamed, as <c>other.Width</c> does in <c>Width == other.Width &amp;&amp; Height == other.Width</c>.
+/// A pair's key fragments are whole words, every other changed column must follow the same rename, and the unchanged name must contain the first item's word but not the second's.
+/// The guards against deliberate pairs (framework values, renamed enclosing calls, squares such as Multiply(x, x), declaration chains) come from a survey of dotnet/runtime and aspnetcore and are explained where they are applied.
 /// The suggested name must exist in scope, which suppresses the classic false positive <c>halfWidth -= borderWidth; halfHeight -= borderWidth;</c> when there is no borderHeight.
 /// Runs are scanned in statement blocks (expression statements and declarations), object initializers, &amp;&amp;/|| chains and argument lists.
 /// </remarks>
@@ -43,7 +46,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     [ThreadStatic]
     private static List<Slot>? t_slots;
 
-    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Descriptors.SimilarLineAnomaly];
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Descriptors.SimilarLineAnomaly, Descriptors.SimilarPairAnomaly];
 
     public override void Initialize(AnalysisContext context)
     {
@@ -166,7 +169,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             IObjectCreationOperation creation => creation.Arguments,
             _ => [],
         };
-        if (arguments.Length < MinimumRun)
+        if (arguments.Length < 2)
         {
             return;
         }
@@ -204,7 +207,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
     private static void AnalyzeItems(OperationAnalysisContext context, List<IOperation> items)
     {
-        if (items.Count < MinimumRun)
+        if (items.Count < 2)
         {
             return;
         }
@@ -236,9 +239,16 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                 }
 
                 var count = last - first + 1;
-                if (count >= MinimumRun && rows[first].Count >= 2 && !IsChain(rows, slots, first, count))
+                if (rows[first].Count >= 2 && count >= 2 && !IsChain(rows, slots, first, count))
                 {
-                    AnalyzeRun(context, rows, slots, first, count);
+                    if (count >= MinimumRun)
+                    {
+                        AnalyzeRun(context, rows, slots, first, count);
+                    }
+                    else if (count == 2)
+                    {
+                        AnalyzePair(context, rows, slots, first);
+                    }
                 }
 
                 first = last + 1;
@@ -403,12 +413,319 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                     var slot = slots[rows[first + odd].Start + other];
                     if (Exists(slot, expected))
                     {
-                        Report(context, slot, oddName, expected);
+                        Report(context, Descriptors.SimilarLineAnomaly, slot, oddName, expected);
                         return;
                     }
                 }
             }
         }
+    }
+
+    // With two rows a changed column can never repeat the other row, so the copy is a column that stays the same while the key is renamed.
+    // The second row is the one reported, because a copy is usually made from the line above and then edited.
+    private static void AnalyzePair(OperationAnalysisContext context, List<Row> rows, List<Slot> slots, int first)
+    {
+        var columns = rows[first].Count;
+        var a = rows[first].Start;
+        var b = rows[first + 1].Start;
+
+        var key = -1;
+        for (var c = 0; c < columns; c++)
+        {
+            if (SameName(slots[a + c], slots[b + c]))
+            {
+                continue;
+            }
+
+            // Lines that also differ in table data, as in Hex(p, _a >> 24, _a >> 16), are not a rename of one word.
+            if (slots[a + c].IsData || slots[b + c].IsData)
+            {
+                return;
+            }
+
+            if (key < 0)
+            {
+                key = c;
+            }
+        }
+
+        if (key < 0 || !HasCopyCandidate(slots, a, b, key + 1, columns)
+            || !TryRename(NameOf(slots[a + key]), NameOf(slots[b + key]), out var from, out var to))
+        {
+            return;
+        }
+
+        // Lines that differ in some other way, as in v.Set(p.X, p.Y) and w.Set(q.X, q.Z), are not a simple rename of one word.
+        for (var c = key + 1; c < columns; c++)
+        {
+            if (SameName(slots[a + c], slots[b + c]))
+            {
+                continue;
+            }
+
+            if (!TryRename(NameOf(slots[a + c]), NameOf(slots[b + c]), out var otherFrom, out var otherTo)
+                || !otherFrom.Equals(from, StringComparison.OrdinalIgnoreCase)
+                || !otherTo.Equals(to, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
+        // Only columns after the key are candidates, because the copy is the value that should have followed the renamed target, as b.X in 'Y = b.X'.
+        for (var c = key + 1; c < columns; c++)
+        {
+            var copy = slots[b + c];
+            if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation))
+            {
+                continue;
+            }
+
+            var name = copy.Symbol!.Name;
+            var at = IndexOfWord(name.AsSpan(), from, 0);
+            if (at < 0 || IndexOfWord(name.AsSpan(), from, at + 1) >= 0 || IndexOfWord(name.AsSpan(), to, 0) >= 0)
+            {
+                continue;
+            }
+
+            var span = name.AsSpan(at, from.Length);
+            var replacement = IsAllCaps(span) ? to.ToString().ToUpperInvariant() : Restyle(to.ToString(), span);
+            var expected = name.Substring(0, at) + replacement + name.Substring(at + from.Length);
+
+            // In X = p.Y + p.X; Y = p.Y + p.X both names already appear on both lines, so the second line was edited on purpose.
+            if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected) || !Exists(copy, expected))
+            {
+                continue;
+            }
+
+            Report(context, Descriptors.SimilarPairAnomaly, copy, name, expected);
+            return;
+        }
+    }
+
+    // When the line already renames an enclosing access or call, its inner names are shared on purpose, as 'head' in head.Inner.Head and head.Inner.Tail, or GetLower() in ZipLower(left.GetLower()) and ZipUpper(left.GetLower()).
+    private static bool IsInsideRenamedColumn(List<Slot> slots, int a, int b, int columns, int key, IOperation copy)
+    {
+        for (var c = 0; c < columns; c++)
+        {
+            if (c == key || SameName(slots[a + c], slots[b + c]))
+            {
+                continue;
+            }
+
+            for (var parent = copy.Parent; parent is not null; parent = parent.Parent)
+            {
+                if (parent == slots[b + c].Operation)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // Passing one variable for two parameters is often deliberate, as in Multiply(x, x) to square; it is reported only when the variable it should have been is never used.
+    private static bool IsDeliberateRepeat(Slot row, Slot copy, string expected)
+    {
+        if (copy.Symbol is not (ILocalSymbol or IParameterSymbol)
+            || row.Operation is not IArgumentOperation argument
+            || SkipImplicitConversions(argument.Value) != copy.Operation)
+        {
+            return false;
+        }
+
+        var root = copy.Operation;
+        while (root.Parent is { } parent)
+        {
+            root = parent;
+        }
+
+        foreach (var operation in root.Descendants())
+        {
+            var name = operation switch
+            {
+                ILocalReferenceOperation local => local.Local.Name,
+                IParameterReferenceOperation parameter => parameter.Parameter.Name,
+                _ => null,
+            };
+            if (string.Equals(name, expected, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasCopyCandidate(List<Slot> slots, int a, int b, int start, int columns)
+    {
+        for (var c = start; c < columns; c++)
+        {
+            if (IsCopyCandidate(slots[a + c], slots[b + c]))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsCopyCandidate(Slot first, Slot second) =>
+        !second.KeyOnly
+        && first.Symbol is not null
+        && second.Symbol is not null
+        && string.Equals(first.Symbol.Name, second.Symbol.Name, StringComparison.Ordinal)
+        && !IsSharedOnPurpose(second);
+
+    // Enum members, framework values such as float.MaxValue or Index.Start, and calls with written arguments such as Math.Max(maxX, 0) are repeated on purpose far more often than by copy-paste.
+    // User constants such as MAX_WIDTH stay candidates.
+    private static bool IsSharedOnPurpose(Slot slot)
+    {
+        switch (slot.Symbol)
+        {
+            case IFieldSymbol { IsStatic: true } field:
+                return Framework.IsFrameworkValue(field.ContainingType);
+
+            case IPropertySymbol { IsStatic: true } property:
+                return Framework.IsFrameworkValue(property.ContainingType);
+
+            case IMethodSymbol when slot.Operation is IInvocationOperation invocation:
+                foreach (var argument in invocation.Arguments)
+                {
+                    if (argument.Syntax is ArgumentSyntax)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+
+            default:
+                return false;
+        }
+    }
+
+    private static bool IsSharedName(List<Slot> slots, int a, int b, int columns, string name)
+    {
+        for (var c = 0; c < columns; c++)
+        {
+            if (SameName(slots[a + c], slots[b + c])
+                && (slots[a + c].Symbol?.Name ?? slots[a + c].Constant as string) is { } shared
+                && string.Equals(shared, name, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Splits two names into their shared affixes and the differing whole words, such as 'min' and 'max' in minX and maxX.
+    // The affixes are cut back to word boundaries, so Width and MinWidth give an empty fragment and never pair; neither fragment may contain the other, so name and displayName do not pair either.
+    private static bool TryRename(string x, string y, out ReadOnlySpan<char> from, out ReadOnlySpan<char> to)
+    {
+        var prefix = CommonPrefix(x, y);
+        var suffix = Math.Min(CommonSuffix(x, y), Math.Min(x.Length, y.Length) - prefix);
+        while (!IsWordBoundary(x.AsSpan(), prefix) || !IsWordBoundary(y.AsSpan(), prefix))
+        {
+            prefix--;
+        }
+
+        while (!IsWordBoundary(x.AsSpan(), x.Length - suffix) || !IsWordBoundary(y.AsSpan(), y.Length - suffix))
+        {
+            suffix--;
+        }
+
+        from = x.AsSpan(prefix, x.Length - prefix - suffix);
+        to = y.AsSpan(prefix, y.Length - prefix - suffix);
+        return HasLetterOrDigit(from)
+            && HasLetterOrDigit(to)
+            && IndexOfWord(from, to, 0) < 0
+            && IndexOfWord(to, from, 0) < 0;
+    }
+
+    // Words are separated by any character that is not a letter or digit, by a lower-case letter followed by an upper-case one, by a letter next to a digit, and before the last capital of an acronym followed by a lower-case letter (XML|Http).
+    // All-lower-case compounds such as 'minx' have no boundary inside.
+    private static bool IsWordBoundary(ReadOnlySpan<char> name, int index)
+    {
+        if (index <= 0 || index >= name.Length)
+        {
+            return true;
+        }
+
+        var before = name[index - 1];
+        var after = name[index];
+        if (!char.IsLetterOrDigit(before) || !char.IsLetterOrDigit(after) || char.IsDigit(before) != char.IsDigit(after))
+        {
+            return true;
+        }
+
+        if (char.IsLower(before) && char.IsUpper(after))
+        {
+            return true;
+        }
+
+        return char.IsUpper(before) && char.IsUpper(after) && index + 1 < name.Length && char.IsLower(name[index + 1]);
+    }
+
+    private static int IndexOfWord(ReadOnlySpan<char> text, ReadOnlySpan<char> word, int start)
+    {
+        for (var i = start; i + word.Length <= text.Length; i++)
+        {
+            if (IsWordBoundary(text, i)
+                && IsWordBoundary(text, i + word.Length)
+                && text.Slice(i, word.Length).Equals(word, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool HasLetterOrDigit(ReadOnlySpan<char> text)
+    {
+        foreach (var c in text)
+        {
+            if (char.IsLetterOrDigit(c))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // MAX_WIDTH becomes MAX_HEIGHT; a single capital such as X is left to Restyle.
+    private static bool IsAllCaps(ReadOnlySpan<char> text)
+    {
+        var letters = 0;
+        foreach (var c in text)
+        {
+            if (char.IsLower(c))
+            {
+                return false;
+            }
+
+            if (char.IsLetter(c))
+            {
+                letters++;
+            }
+        }
+
+        return letters >= 2;
+    }
+
+    private static bool SameName(Slot x, Slot y)
+    {
+        if (x.Symbol is not null || y.Symbol is not null)
+        {
+            return x.Symbol is not null && y.Symbol is not null && string.Equals(x.Symbol.Name, y.Symbol.Name, StringComparison.Ordinal);
+        }
+
+        return x.Constant is string text
+            ? y.Constant is string other && string.Equals(text, other, StringComparison.Ordinal)
+            : Equals(x.Constant, y.Constant);
     }
 
     // Finds the single line where the other column's fragment does not match the key, and the fragment that line should have had.
@@ -701,8 +1018,8 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     private static ReadOnlySpan<char> Fragment(string name, (int Prefix, int Suffix) affix) =>
         name.AsSpan(affix.Prefix, name.Length - affix.Prefix - affix.Suffix);
 
-    // Both are non-empty: key fragments are checked non-empty, and the sample comes from a line that matched the key.
-    // Invariant casing keeps suggestions such as 'items' from becoming 'ıtems' under a Turkish culture.
+    // Both are non-empty: run fragments come from keys checked non-empty and from a line that matched the key, and pair fragments contain a letter or digit.
+    // Invariant casing keeps suggestions such as 'items' from becoming 'İtems' under a Turkish culture.
     private static string Restyle(string fragment, ReadOnlySpan<char> sample)
     {
         if (char.IsUpper(sample[0]) && char.IsLower(fragment[0]))
@@ -778,13 +1095,13 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     private static bool IsSameKind(ISymbol reported, ISymbol suggested) =>
         reported is IFieldSymbol or IPropertySymbol ? suggested is IFieldSymbol or IPropertySymbol : reported.Kind == suggested.Kind;
 
-    private static void Report(OperationAnalysisContext context, Slot slot, string oddName, string expected)
+    private static void Report(OperationAnalysisContext context, DiagnosticDescriptor descriptor, Slot slot, string oddName, string expected)
     {
         var text = slot.Operation.Syntax.ToString();
         var at = text.LastIndexOf(oddName, StringComparison.Ordinal);
         var suggestion = at >= 0 ? text.Substring(0, at) + expected + text.Substring(at + oddName.Length) : expected;
         context.ReportDiagnostic(Diagnostic.Create(
-            Descriptors.SimilarLineAnomaly,
+            descriptor,
             slot.Operation.Syntax.GetLocation(),
             messageArgs: [text, suggestion]));
     }

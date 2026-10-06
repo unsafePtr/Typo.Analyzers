@@ -9,6 +9,9 @@ public sealed class SimilarRunAnalyzerTests
     private static DiagnosticResult Anomaly(string actual, string expected) =>
         Verify.Diagnostic(Descriptors.SimilarLineAnomaly).WithLocation(0).WithArguments(actual, expected);
 
+    private static DiagnosticResult Pair(string actual, string expected, int location = 0) =>
+        Verify.Diagnostic(Descriptors.SimilarPairAnomaly).WithLocation(location).WithArguments(actual, expected);
+
     [Fact]
     public Task SourceSdk_LastLineKeepsPreviousMember() => Verify.VerifyAsync(
         """
@@ -526,12 +529,6 @@ public sealed class SimilarRunAnalyzerTests
                 System.Console.WriteLine("b");
                 System.Console.WriteLine("b");
             }
-
-            public void TwoLines(Box b)
-            {
-                X = b.X;
-                Y = b.X;
-            }
         }
         """);
 
@@ -649,6 +646,562 @@ public sealed class SimilarRunAnalyzerTests
                 var f8 = f4 * f4;
                 var f12 = f8 * f4;
                 return f12;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task Pair_TwoAssignments() => Verify.VerifyAsync(
+        """
+        public sealed class Box
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+
+            public void TwoLines(Box b)
+            {
+                X = b.X;
+                Y = {|#0:b.X|};
+            }
+        }
+        """,
+        Pair("b.X", "b.Y"));
+
+    [Fact]
+    public Task Pair_EqualsChain() => Verify.VerifyAsync(
+        """
+        public sealed class Size
+        {
+            public int Width { get; init; }
+            public int Height { get; init; }
+
+            public bool SameAs(Size other) => other is not null && Width == other.Width && Height == {|#0:other.Width|};
+        }
+        """,
+        Pair("other.Width", "other.Height"));
+
+    [Fact]
+    public Task Pair_Declarations() => Verify.VerifyAsync(
+        """
+        using System.Linq;
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public static class C
+        {
+            public static int Spread(Point[] pts)
+            {
+                var minX = pts.Min(p => p.X);
+                var minY = pts.Min(p => {|#0:p.X|});
+                return minX + minY;
+            }
+        }
+        """,
+        Pair("p.X", "p.Y"));
+
+    [Fact]
+    public Task Pair_OldAndNewValue() => Verify.VerifyAsync(
+        """
+        public sealed class Change
+        {
+            public string OldValue { get; set; }
+            public string NewValue { get; set; }
+        }
+
+        public static class C
+        {
+            public static bool Differs(Change e)
+            {
+                var oldValue = e.OldValue;
+                var newValue = {|#0:e.OldValue|};
+                return oldValue != newValue;
+            }
+        }
+        """,
+        Pair("e.OldValue", "e.NewValue"));
+
+    [Fact]
+    public Task Pair_ConstructorArguments() => Verify.VerifyAsync(
+        """
+        public readonly record struct Vec(int X, int Y);
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public static class C
+        {
+            public static Vec Positional(Point p) => new Vec(p.X, {|#0:p.X|});
+
+            public static Vec Named(Point p) => new Vec(Y: {|#1:p.X|}, X: p.X);
+        }
+        """,
+        Pair("p.X", "p.Y"),
+        Pair("p.X", "p.Y", 1));
+
+    [Fact]
+    public Task Pair_ConstructorInitializers() => Verify.VerifyAsync(
+        """
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public class Base
+        {
+            public Base(int x, int y)
+            {
+            }
+
+            public Base(Point p)
+                : this(p.X, {|#0:p.X|})
+            {
+            }
+        }
+
+        public sealed class Derived(Point p) : Base(p.X, {|#1:p.X|});
+        """,
+        Pair("p.X", "p.Y"),
+        Pair("p.X", "p.Y", 1));
+
+    [Fact]
+    public Task Pair_ParameterPassedTwice() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static int Process(int left, int right) => left - right;
+
+            public static int Run(int left, int right) => Process(left, {|#0:left|});
+        }
+        """,
+        Pair("left", "right"));
+
+    [Fact]
+    public Task Pair_StringKeys() => Verify.VerifyAsync(
+        """
+        public sealed class Parameters
+        {
+            public void AddWithValue(string name, object value)
+            {
+            }
+        }
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public static class C
+        {
+            public static void Bind(Parameters parameters, Point p)
+            {
+                parameters.AddWithValue("@x", p.X);
+                parameters.AddWithValue("@y", {|#0:p.X|});
+            }
+        }
+        """,
+        Pair("p.X", "p.Y"));
+
+    [Fact]
+    public Task Pair_AllCapsConstant() => Verify.VerifyAsync(
+        """
+        public sealed class Layout
+        {
+            private const int MAX_WIDTH = 800;
+            private const int MAX_HEIGHT = 600;
+            private int width;
+            private int height;
+
+            public int Area => width * height;
+
+            public void Reset()
+            {
+                width = MAX_WIDTH;
+                height = {|#0:MAX_WIDTH|};
+            }
+        }
+        """,
+        Pair("MAX_WIDTH", "MAX_HEIGHT"));
+
+    [Fact]
+    public Task Pair_CallWithoutArguments() => Verify.VerifyAsync(
+        """
+        using System.Linq;
+
+        public static class C
+        {
+            public static int Range(int[] v)
+            {
+                var minX = v.Min();
+                var maxX = {|#0:v.Min()|};
+                return maxX - minX;
+            }
+        }
+        """,
+        Pair("v.Min()", "v.Max()"));
+
+    [Fact]
+    public Task OnlyTheBrokenCallOfTwoIsReported() => Verify.VerifyAsync(
+        """
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public static class C
+        {
+            private static void Move(int x, int y)
+            {
+            }
+
+            public static void Run(Point d)
+            {
+                Move(d.X, {|#0:d.X|});
+                Move(d.X, d.Y);
+            }
+        }
+        """,
+        Pair("d.X", "d.Y"));
+
+    [Fact]
+    public Task OnlyTheBrokenLineOfTwoIsReported() => Verify.VerifyAsync(
+        """
+        public sealed class Pen
+        {
+        }
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public static class C
+        {
+            private static void DrawLine(Pen pen, int x1, int y1, int x2, int y2)
+            {
+            }
+
+            public static void Draw(Pen pen, Point a, Point b)
+            {
+                DrawLine(pen, a.X, a.Y, b.X, b.Y);
+                DrawLine(pen, a.X, a.Y, b.X, {|#0:b.X|});
+            }
+        }
+        """,
+        Anomaly("b.X", "b.Y"));
+
+    [Fact]
+    public Task NoDiagnostics_ForPairsThatAreNotRenames() => Verify.VerifyAsync(
+        """
+        public sealed class Source
+        {
+            public int Width { get; set; }
+            public string Name { get; set; }
+            public string DisplayName { get; set; }
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int XToX { get; set; }
+            public int XToY { get; set; }
+            public int YToX { get; set; }
+            public int YToY { get; set; }
+            public int Max { get; set; }
+            public int May { get; set; }
+        }
+
+        public sealed class Target
+        {
+            public int Width { get; set; }
+            public int MinWidth { get; set; }
+            public string Name { get; set; }
+            public string DisplayName { get; set; }
+            public int ScaleX { get; set; }
+            public int ScaleY { get; set; }
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Value { get; set; }
+
+            private static string Read(string key) => key;
+
+            private static void Process(int left, int right)
+            {
+            }
+
+            public void Extend(Source s)
+            {
+                Width = s.Width;
+                MinWidth = s.Width;
+            }
+
+            public void Label(Source p)
+            {
+                Name = p.Name;
+                DisplayName = p.Name;
+            }
+
+            public string Caption(Source p)
+            {
+                var name = p.Name;
+                var displayName = p.Name;
+                return name + displayName;
+            }
+
+            public void Scale(int scale)
+            {
+                ScaleX = scale;
+                ScaleY = scale;
+            }
+
+            public string Literals()
+            {
+                var user = Read("name");
+                var name = Read("name");
+                return user + name;
+            }
+
+            public void Sum(Source p)
+            {
+                X = p.Y + p.X;
+                Y = p.Y + p.X;
+            }
+
+            public void Twice(Source b)
+            {
+                X = b.XToX;
+                Y = b.XToX;
+            }
+
+            public void NotAWord(Source b)
+            {
+                X = b.Max;
+                Y = b.Max;
+            }
+
+            public void DeclaredLater(int x)
+            {
+                X = x;
+                Y = x;
+                var y = 0;
+                Process(y, y);
+            }
+
+            public void OtherChanges(Target x, Target y, Source a, Source b)
+            {
+                x.Value = a.X;
+                y.Value = b.X;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task NoDiagnostics_ForArgumentsThatAreNotCopies() => Verify.VerifyAsync(
+        """
+        using System;
+        using System.Collections.Generic;
+
+        public readonly record struct Size(int Width, int Height);
+
+        public readonly record struct Point(int X, int Y);
+
+        public sealed class Coords
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+        }
+
+        public sealed class Edges
+        {
+            public int Left { get; set; }
+            public int Top { get; set; }
+        }
+
+        public sealed class Setter
+        {
+            public void Set(int a, int b, int c)
+            {
+            }
+        }
+
+        public static class Extensions
+        {
+            public static int Pow(this int x, int y) => x * y;
+        }
+
+        [AttributeUsage(AttributeTargets.All)]
+        public sealed class RangeAttribute(int min, int max) : Attribute
+        {
+            public int Span => max - min;
+        }
+
+        public sealed class Limits
+        {
+            public const int Min = 0;
+            public const int Max = 10;
+
+            [Range(Min, Min)]
+            public int Value { get; set; }
+        }
+
+        public static class C
+        {
+            private static void Swap(ref int a, ref int b)
+            {
+            }
+
+            private static void Log(string format, params object[] args)
+            {
+            }
+
+            public static Size Square(int side) => new Size(side, side);
+
+            public static object Tuple(Coords a) => System.Tuple.Create(a.X, a.X);
+
+            public static int Largest(Coords a) => Math.Max(a.X, a.X);
+
+            public static int Power(int x, int y) => x.Pow(x) + y;
+
+            public static void Sets(Setter v, Setter w, Coords p, Coords q)
+            {
+                v.Set(p.X, p.Y, p.Y);
+                w.Set(q.X, q.Y, q.Z);
+            }
+
+            public static Point Corner(Edges x, int y) => new Point(x.Left, x.Top) with { Y = y };
+
+            public static void Exchange(int[] a, int i, int j, int b) => Swap(ref a[i], ref a[j]);
+
+            public static string Text(Coords p) => $"{p.X}{p.X}";
+
+            public static void Trace(Coords p) => Log("{X}{Y}", p.X, p.X);
+
+            public static Dictionary<string, int> Map(Coords p) => new() { { "x", p.X }, { "y", p.X } };
+        }
+        """);
+
+    // Each case is modelled on a false positive found in dotnet/runtime.
+    [Fact]
+    public Task NoDiagnostics_ForDeliberatePairs() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class Ends
+        {
+            public int Head;
+            public int Tail;
+        }
+
+        public sealed class Segment
+        {
+            public Ends Inner = new();
+        }
+
+        public sealed class Half
+        {
+            public int GetLower() => 0;
+            public int GetUpper() => 0;
+        }
+
+        public static class C
+        {
+            private static int Read(ref int value) => value;
+
+            private static int ZipLower(int left, int right) => left;
+
+            private static int ZipUpper(int left, int right) => right;
+
+            private static int Create(int lower, int upper) => lower + upper;
+
+            private static int Hex(int p, int a, int b) => p + a + b;
+
+            private static int Shift(int bits, int key, int value) => bits + key + value;
+
+            private static void Multiply(ref int x, ref int y, out int result) => result = x * y;
+
+            public static int Queue(Segment head, Segment tail)
+            {
+                var headHead = Read(ref head.Inner.Head);
+                var headTail = Read(ref head.Inner.Tail);
+                return headHead + headTail + tail.Inner.Head;
+            }
+
+            public static int Zip(Half left, Half right) =>
+                Create(
+                    ZipLower(left.GetLower(), right.GetLower()),
+                    ZipUpper(left.GetLower(), right.GetLower()));
+
+            public static int Format(int p, int _a, int _b) => Hex(p, _a >> 24, _a >> 16) + _b;
+
+            public static void Pack(int head, int tail, Ends p)
+            {
+                Shift(24, head, p.Head);
+                Shift(16, tail, p.Head);
+            }
+
+            public static int Hypot(int x, int y)
+            {
+                Multiply(ref x, ref x, out var x2);
+                Multiply(ref y, ref y, out var y2);
+                return x2 + y2;
+            }
+
+            public static bool IsEmpty(Range range)
+            {
+                Index startIndex = range.Start;
+                Index endIndex = range.End;
+                return startIndex.Equals(Index.Start) && endIndex.Equals(Index.Start);
+            }
+        }
+        """);
+
+    [Fact]
+    public Task NoDiagnostics_ForValuesSharedOnPurpose() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public enum TextAlign
+        {
+            Left,
+            Right,
+        }
+
+        public sealed class Cell
+        {
+            public TextAlign Align { get; set; }
+        }
+
+        public sealed class Bounds
+        {
+            public int minX;
+            public int maxX;
+            public float minDistance;
+            public float maxDistance;
+
+            public void Clamp()
+            {
+                maxX = Math.Max(maxX, 0);
+                minX = Math.Max(minX, 0);
+            }
+
+            public void Reset()
+            {
+                maxDistance = float.MaxValue;
+                minDistance = float.MaxValue;
+            }
+
+            public static void Align(Cell left, Cell right)
+            {
+                left.Align = TextAlign.Left;
+                right.Align = TextAlign.Left;
             }
         }
         """);
