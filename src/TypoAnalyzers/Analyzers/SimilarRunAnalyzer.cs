@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 using TypoAnalyzers.Core;
@@ -8,14 +9,15 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0011: in three or more consecutive similar lines, one line repeats a name from another line where the pattern calls for a different one, as in <c>Z += other.Y</c> after <c>X += other.X; Y += other.Y;</c>.
+/// TYPO0011: in three or more consecutive similar lines or arguments, one item repeats a name from another where the pattern calls for a different one, as in <c>Z += other.Y</c> after <c>X += other.X; Y += other.Y;</c>.
 /// </summary>
 /// <remarks>
-/// Each line becomes a shape hash plus its slots (symbol names and literals); consecutive lines with the same shape form a run and their slots form columns.
-/// A key column is one whose fragments (names minus the column's shared prefix and suffix) are all different, so they identify each line.
-/// A second column that matches the key on every line but one, and repeats another line's fragment on that line, is reported.
+/// Each item becomes a shape hash plus its slots (symbol names and literals); consecutive items with the same shape form a run and their slots form columns.
+/// Declarations and arguments start with a key-only slot for the declared local or the parameter, which can identify an item but is never reported.
+/// A key column is one whose fragments (names minus the column's shared prefix and suffix) are all different, so they identify each item.
+/// A second column that matches the key on every item but one, and repeats another item's fragment on that one, is reported.
 /// The suggested name must exist in scope, which suppresses the classic false positive <c>halfWidth -= borderWidth; halfHeight -= borderWidth;</c> when there is no borderHeight.
-/// Runs are scanned in statement blocks, object initializers and &amp;&amp;/|| chains.
+/// Runs are scanned in statement blocks (expression statements and declarations), object initializers, &amp;&amp;/|| chains and argument lists.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
@@ -24,6 +26,9 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
     // Exact first, so the partial modes only add findings such as minX/maxY where key names wrap the other fragment.
     private static readonly Match[] s_modes = [Match.Exact, Match.KeyEndsWith, Match.KeyStartsWith];
+
+    private static readonly Comparison<IOperation> s_byParameterOrdinal =
+        static (x, y) => ((IArgumentOperation)x).Parameter!.Ordinal.CompareTo(((IArgumentOperation)y).Parameter!.Ordinal);
 
     private enum Match
     {
@@ -47,6 +52,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         context.RegisterOperationAction(AnalyzeBlock, OperationKind.Block);
         context.RegisterOperationAction(AnalyzeInitializer, OperationKind.ObjectOrCollectionInitializer);
         context.RegisterOperationAction(AnalyzeChain, OperationKind.Binary);
+        context.RegisterOperationAction(AnalyzeArguments, OperationKind.Invocation, OperationKind.ObjectCreation);
     }
 
     private static void AnalyzeBlock(OperationAnalysisContext context)
@@ -56,10 +62,15 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         {
             foreach (var operation in ((IBlockOperation)context.Operation).Operations)
             {
-                if (operation is IExpressionStatementOperation statement)
+                switch (operation)
                 {
-                    items.Add(statement.Operation);
-                    continue;
+                    case IExpressionStatementOperation statement:
+                        items.Add(statement.Operation);
+                        continue;
+
+                    case IVariableDeclarationGroupOperation group:
+                        AddDeclarators(context, group, items);
+                        continue;
                 }
 
                 AnalyzeItems(context, items);
@@ -71,6 +82,25 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         finally
         {
             OperandChain.Return(items);
+        }
+    }
+
+    // Each initialized local is an item; one without an initializer ends the run like any other statement.
+    private static void AddDeclarators(OperationAnalysisContext context, IVariableDeclarationGroupOperation group, List<IOperation> items)
+    {
+        foreach (var declaration in group.Declarations)
+        {
+            foreach (var declarator in declaration.Declarators)
+            {
+                if (declarator.Initializer is not null)
+                {
+                    items.Add(declarator);
+                    continue;
+                }
+
+                AnalyzeItems(context, items);
+                items.Clear();
+            }
         }
     }
 
@@ -121,6 +151,57 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         }
     }
 
+    // Implicit calls (collection-initializer Add, LINQ query methods, interpolated-string handlers, attribute constructors) have no argument list the user wrote.
+    private static void AnalyzeArguments(OperationAnalysisContext context)
+    {
+        var operation = context.Operation;
+        if (operation.IsImplicit)
+        {
+            return;
+        }
+
+        var arguments = operation switch
+        {
+            IInvocationOperation invocation => invocation.Arguments,
+            IObjectCreationOperation creation => creation.Arguments,
+            _ => [],
+        };
+        if (arguments.Length < MinimumRun)
+        {
+            return;
+        }
+
+        var items = OperandChain.Rent();
+        try
+        {
+            // Roslyn lists arguments in source order; parameter order makes new Vec(y: a, x: b) form the same rows as new Vec(b, a).
+            var ordered = true;
+            var previous = -1;
+            foreach (var argument in arguments)
+            {
+                if (argument.Parameter is not { } parameter)
+                {
+                    return;
+                }
+
+                ordered &= parameter.Ordinal > previous;
+                previous = parameter.Ordinal;
+                items.Add(argument);
+            }
+
+            if (!ordered)
+            {
+                items.Sort(s_byParameterOrdinal);
+            }
+
+            AnalyzeItems(context, items);
+        }
+        finally
+        {
+            OperandChain.Return(items);
+        }
+    }
+
     private static void AnalyzeItems(OperationAnalysisContext context, List<IOperation> items)
     {
         if (items.Count < MinimumRun)
@@ -132,11 +213,18 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         var slots = t_slots ??= new List<Slot>(64);
         try
         {
-            foreach (var item in items)
+            // An item whose neighbours differ already at the top can never join a run, so describing it is skipped.
+            int? previous = null;
+            var current = TopShape(items[0]);
+            for (var i = 0; i < items.Count; i++)
             {
+                var next = i + 1 < items.Count ? TopShape(items[i + 1]) : null;
                 var start = slots.Count;
                 var hash = 17;
-                rows.Add(Describe(item, ref hash, slots, 0) ? new Row(hash, start, slots.Count - start) : new Row(rows.Count, start, -1));
+                var twin = current is not null && (current == previous || current == next);
+                rows.Add(twin && DescribeItem(items[i], ref hash, slots) ? new Row(hash, start, slots.Count - start) : new Row(rows.Count, start, -1));
+                previous = current;
+                current = next;
             }
 
             for (var first = 0; first < rows.Count;)
@@ -147,9 +235,10 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                     last++;
                 }
 
-                if (last - first + 1 >= MinimumRun && rows[first].Count >= 2)
+                var count = last - first + 1;
+                if (count >= MinimumRun && rows[first].Count >= 2 && !IsChain(rows, slots, first, count))
                 {
-                    AnalyzeRun(context, rows, slots, first, last - first + 1);
+                    AnalyzeRun(context, rows, slots, first, count);
                 }
 
                 first = last + 1;
@@ -159,6 +248,94 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         {
             rows.Clear();
             slots.Clear();
+        }
+    }
+
+    // Mirrors the top of DescribeItem's hash, so items of different shapes never hash alike; null for an item that never joins a run.
+    private static int? TopShape(IOperation item) => item switch
+    {
+        IVariableDeclaratorOperation { Initializer: { } initializer } => Mix((int)OperationKind.VariableDeclarator, Shape(initializer.Value)),
+        IVariableDeclaratorOperation => null,
+        IArgumentOperation { Syntax: ArgumentSyntax } argument => Mix((int)OperationKind.Argument, Shape(argument.Value)),
+        IArgumentOperation => null,
+        _ => Shape(item),
+    };
+
+    private static int Shape(IOperation operation)
+    {
+        operation = SkipImplicitConversions(operation);
+        return operation switch
+        {
+            IBinaryOperation binary => Mix((int)operation.Kind, (int)binary.OperatorKind),
+            ICompoundAssignmentOperation compound => Mix((int)operation.Kind, (int)compound.OperatorKind),
+            IUnaryOperation unary => Mix((int)operation.Kind, (int)unary.OperatorKind),
+            _ => (int)operation.Kind,
+        };
+    }
+
+    // Declarations that read a local declared earlier in the same run are steps of one computation, as in f8 = f4 * f4; f12 = f8 * f4, not parallel copies.
+    private static bool IsChain(List<Row> rows, List<Slot> slots, int first, int count)
+    {
+        var head = slots[rows[first].Start];
+        if (!head.KeyOnly || head.Symbol is not ILocalSymbol)
+        {
+            return false;
+        }
+
+        var runStart = head.Operation.Syntax.SpanStart;
+        for (var r = 1; r < count; r++)
+        {
+            var row = rows[first + r];
+            var rowStart = slots[row.Start].Operation.Syntax.SpanStart;
+            for (var s = row.Start + 1; s < row.Start + row.Count; s++)
+            {
+                if (slots[s].Symbol is ILocalSymbol local && IsDeclaredWithin(local, runStart, rowStart))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsDeclaredWithin(ILocalSymbol local, int start, int end)
+    {
+        foreach (var location in local.Locations)
+        {
+            if (location.IsInSource && location.SourceSpan.Start >= start && location.SourceSpan.Start < end)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Declarations and arguments start with the declared local or the parameter, so 'var minX = …' and 'x: …' are keyed by name.
+    // Those slots are added here rather than in Describe, which would also add them for locals inside lambda bodies and change existing columns.
+    // An argument the user did not write (a default value, a params array, the receiver of an extension call) never joins a run.
+    private static bool DescribeItem(IOperation item, ref int hash, List<Slot> slots)
+    {
+        switch (item)
+        {
+            case IVariableDeclaratorOperation declarator:
+                hash = Mix(hash, (int)OperationKind.VariableDeclarator);
+                slots.Add(new Slot(declarator, declarator.Symbol, null, IsData: false, KeyOnly: true));
+                return declarator.Initializer is { } initializer && Describe(initializer.Value, ref hash, slots, 0);
+
+            case IArgumentOperation argument:
+                if (argument.Syntax is not ArgumentSyntax)
+                {
+                    return false;
+                }
+
+                hash = Mix(hash, (int)OperationKind.Argument);
+                slots.Add(new Slot(argument, argument.Parameter, null, IsData: false, KeyOnly: true));
+                return Describe(argument.Value, ref hash, slots, 0);
+
+            default:
+                return Describe(item, ref hash, slots, 0);
         }
     }
 
@@ -202,7 +379,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
             for (var other = 0; other < columns; other++)
             {
-                if (other == key || affixes[other] is not { } computedAffix)
+                if (other == key || affixes[other] is not { } computedAffix || slots[rows[first].Start + other].KeyOnly)
                 {
                     continue;
                 }
@@ -313,6 +490,16 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         _ => otherFragment.Length > 0 && keyFragment.Length > otherFragment.Length && keyFragment.StartsWith(otherFragment, StringComparison.OrdinalIgnoreCase),
     };
 
+    private static IOperation SkipImplicitConversions(IOperation operation)
+    {
+        while (operation is IConversionOperation { IsImplicit: true } conversion)
+        {
+            operation = conversion.Operand;
+        }
+
+        return operation;
+    }
+
     // Returns false when the tree is too deep to describe; such a line never joins a run.
     private static bool Describe(IOperation operation, ref int hash, List<Slot> slots, int depth)
     {
@@ -321,11 +508,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
-        while (operation is IConversionOperation { IsImplicit: true } conversion)
-        {
-            operation = conversion.Operand;
-        }
-
+        operation = SkipImplicitConversions(operation);
         var next = depth + 1;
         hash = Mix(hash, (int)operation.Kind);
         switch (operation)
@@ -637,5 +820,6 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
     private readonly record struct Row(int Hash, int Start, int Count);
 
-    private readonly record struct Slot(IOperation Operation, ISymbol? Symbol, object? Constant, bool IsData);
+    // A key-only slot (a declared local or a parameter name) can identify a row but is never the name reported.
+    private readonly record struct Slot(IOperation Operation, ISymbol? Symbol, object? Constant, bool IsData, bool KeyOnly = false);
 }

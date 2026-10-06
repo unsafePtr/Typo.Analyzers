@@ -99,9 +99,9 @@ internal static class Descriptors
     public static readonly DiagnosticDescriptor SimilarLineAnomaly = new(
         id: "TYPO0011",
         title: "Probable unedited copy in a sequence of similar lines",
-        messageFormat: "'{0}' looks like an unedited copy from a neighbouring line; '{1}' was probably intended",
+        messageFormat: "'{0}' looks like an unedited copy from a neighbouring line or argument; '{1}' was probably intended",
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "In a run of similar statements, each line pairs matching names such as X with X and Y with Y, but one line repeats a name from another line where a different one was expected. This heuristic is reported as a suggestion.");
+        description: "In a run of three or more similar statements, declarations, conditions or arguments, each item pairs matching names such as X with X and Y with Y, but one item repeats a name from another where a different one was expected. This heuristic is reported as a suggestion.");
 }

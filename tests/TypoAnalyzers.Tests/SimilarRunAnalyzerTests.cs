@@ -569,4 +569,87 @@ public sealed class SimilarRunAnalyzerTests
             }
         }
         """);
+
+    [Fact]
+    public Task ArgumentRun() => Verify.VerifyAsync(
+        """
+        public sealed class Rect
+        {
+            public Rect(int left, int top, int right, int bottom)
+            {
+            }
+
+            public int Left { get; }
+            public int Top { get; }
+            public int Right { get; }
+            public int Bottom { get; }
+
+            public static Rect CopyOf(Rect r) => new Rect(r.Left, r.Top, r.Right, {|#0:r.Right|});
+        }
+        """,
+        Anomaly("r.Right", "r.Bottom"));
+
+    [Fact]
+    public Task DeclarationRun() => Verify.VerifyAsync(
+        """
+        using System.Linq;
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+        }
+
+        public static class C
+        {
+            public static int Spread(Point[] pts)
+            {
+                var minX = pts.Min(p => p.X);
+                var minY = pts.Min(p => p.Y);
+                var minZ = pts.Min(p => {|#0:p.Y|});
+                return minX + minY + minZ;
+            }
+        }
+        """,
+        Anomaly("p.Y", "p.Z"));
+
+    [Fact]
+    public Task LambdaBodiesWithLocalsKeepTheirColumns() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class Vec
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+
+            private static int Compute(Func<int> f) => f();
+
+            public void Set(Vec o)
+            {
+                X = Compute(() => { var t = o.X; return t; });
+                Y = Compute(() => { var t = o.Y; return t; });
+                Z = Compute(() => { var t = {|#0:o.Y|}; return t; });
+            }
+        }
+        """,
+        Anomaly("o.Y", "o.Z"));
+
+    [Fact]
+    public Task NoDiagnostics_ForDeclarationChains() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int Powers(int x)
+            {
+                var f2 = x * x;
+                var f4 = f2 * f2;
+                var f8 = f4 * f4;
+                var f12 = f8 * f4;
+                return f12;
+            }
+        }
+        """);
 }

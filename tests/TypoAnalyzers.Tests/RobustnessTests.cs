@@ -26,6 +26,12 @@ public sealed class RobustnessTests
         "class C { void M() { if (",
         "class C { int M(int[] a) { var t = 0; for (int i; i >= 0; i--) { t += a[0]; } return t; } }",
         "class C { bool M(string s) => string.Equals(s); }",
+        "class C { void M(P b) { var a = b.X; var c = b. } }",
+        "class C { void M(P p) { var a = p.X, ; var = p.Y; } }",
+        "class C { void Foo(int x, int y) { } void M(P p) { Foo(p.X, p. } }",
+        "class C { void Foo(int x, int y) { } void M(int a) { Foo(y: a, z: a); Foo(y: a, y: a); Foo(a, x: a); } }",
+        "class C { C(int x, int y) { } C(int p) : this(p, ) { } }",
+        "class C(int p) : B(p, p, ;",
     ];
 
     [Theory]

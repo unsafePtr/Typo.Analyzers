@@ -16,7 +16,7 @@ Roslyn analyzers for copy-paste and typo bugs that the common open-source .NET a
 | TYPO0008 | RepeatedAssignmentAnalyzer | Field, auto-property, array element or collection entry written twice with no read in between |
 | TYPO0009 | LoopIndexAnalyzer | `for` loop over a collection (forward, `Count - 1` or reverse) that reads `[0]` and never uses the loop variable |
 | TYPO0010 | StringCaseAnalyzer | Lowercased or uppercased value compared with, or searched for, text with letters of the other case |
-| TYPO0011 | SimilarRunAnalyzer | One line of a run of similar lines repeating a neighbour's name, as in `Z += other.Y` or `maxY = Math.Max(maxY, p.X)` (Info severity) |
+| TYPO0011 | SimilarRunAnalyzer | One item of a run of three or more similar statements, declarations, conditions or arguments repeating a neighbour's name, as in `Z += other.Y`, `maxY = Math.Max(maxY, p.X)` or `new Rect(r.Left, r.Top, r.Right, r.Right)` (Info severity) |
 
 Every analyzer shares the core in `src/TypoAnalyzers/Core`:
 - `OperationEquivalence`: semantic expression equality, plus a matching hash.
@@ -41,6 +41,7 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 
 - Identical one-line `else if` bodies without calls or assignments are skipped on purpose to avoid noise.
 - In TYPO0011, numeric literals that are not indexes count as table data and never form a pattern.
+- Declarations that read a local declared earlier in the same run, as in `f8 = f4 * f4; f12 = f8 * f4`, are steps of one computation and never form a run.
 - Swapped arguments matched by parameter name are left to Sonar S2234.
 
 ## Build and test
