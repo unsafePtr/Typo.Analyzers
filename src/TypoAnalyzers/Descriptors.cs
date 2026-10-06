@@ -77,4 +77,13 @@ internal static class Descriptors
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
         description: "The same field, property or element is assigned twice in a row with nothing reading it in between. The second assignment was usually meant for a different target.");
+
+    public static readonly DiagnosticDescriptor ConstantIndexInLoop = new(
+        id: "TYPO0009",
+        title: "Loop always reads the same element",
+        messageFormat: "The loop over '{0}' never uses '{1}' and always reads '{2}'",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "A for loop iterates over a collection, but its body indexes the collection with a constant and never uses the loop variable.");
 }

@@ -1,0 +1,134 @@
+using System.Collections.Immutable;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Diagnostics;
+using Microsoft.CodeAnalysis.Operations;
+using TypoAnalyzers.Core;
+
+namespace TypoAnalyzers.Analyzers;
+
+/// <summary>
+/// TYPO0009: a for loop over a collection whose body reads <c>items[0]</c> and never uses the loop variable.
+/// </summary>
+/// <remarks>
+/// The collection comes from the bound (<c>i &lt; items.Length</c>, <c>i &lt;= items.Count - 1</c>) or, for reverse loops such as <c>for (var i = items.Length - 1; i &gt;= 0; i--)</c>, from the initializer.
+/// </remarks>
+[DiagnosticAnalyzer(LanguageNames.CSharp)]
+public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
+{
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = [Descriptors.ConstantIndexInLoop];
+
+    public override void Initialize(AnalysisContext context)
+    {
+        context.EnableConcurrentExecution();
+        context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
+        context.RegisterCompilationStartAction(static start =>
+        {
+            var purity = new PurityOracle(start.Compilation);
+            start.RegisterOperationAction(context => Analyze(context, purity), OperationKind.Loop);
+        });
+    }
+
+    private static void Analyze(OperationAnalysisContext context, PurityOracle purity)
+    {
+        if (context.Operation is not IForLoopOperation { Locals.Length: 1 } loop
+            || loop.Condition is not IBinaryOperation comparison
+            || LoopedCollection(loop, comparison, loop.Locals[0]) is not { } collection
+            || !purity.IsFree(collection))
+        {
+            return;
+        }
+
+        var index = loop.Locals[0];
+        IOperation? constantAccess = null;
+        foreach (var operation in loop.Body.DescendantsAndSelf())
+        {
+            switch (operation)
+            {
+                case ILocalReferenceOperation reference when SymbolEqualityComparer.Default.Equals(reference.Local, index):
+                    return;
+
+                case IArrayElementReferenceOperation { Indices.Length: 1 } element
+                    when constantAccess is null
+                        && element.Indices[0].ConstantValue.HasValue
+                        && OperationEquivalence.AreEquivalent(element.ArrayReference, collection):
+                    constantAccess = element;
+                    break;
+
+                case IPropertyReferenceOperation { Property.IsIndexer: true, Arguments.Length: 1 } indexer
+                    when constantAccess is null
+                        && indexer.Arguments[0].Value.ConstantValue.HasValue
+                        && OperationEquivalence.AreEquivalent(indexer.Instance, collection):
+                    constantAccess = indexer;
+                    break;
+            }
+        }
+
+        if (constantAccess is not null)
+        {
+            context.ReportDiagnostic(Diagnostic.Create(
+                Descriptors.ConstantIndexInLoop,
+                constantAccess.Syntax.GetLocation(),
+                messageArgs: [collection.Syntax.ToString(), index.Name, constantAccess.Syntax.ToString()]));
+        }
+    }
+
+    private static IOperation? LoopedCollection(IForLoopOperation loop, IBinaryOperation comparison, ILocalSymbol index)
+    {
+        switch (comparison.OperatorKind)
+        {
+            case BinaryOperatorKind.LessThan or BinaryOperatorKind.LessThanOrEqual when IsLocal(comparison.LeftOperand, index):
+                return CollectionOfBound(comparison.RightOperand);
+
+            case BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual when IsLocal(comparison.RightOperand, index):
+                return CollectionOfBound(comparison.LeftOperand);
+
+            case BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual when IsLocal(comparison.LeftOperand, index):
+                return CollectionOfBound(InitialValue(loop, index));
+
+            default:
+                return null;
+        }
+    }
+
+    // Accepts items.Length, items.Count or items.LongLength, optionally minus a constant.
+    private static IOperation? CollectionOfBound(IOperation? bound)
+    {
+        bound = SkipImplicitConversions(bound);
+        if (bound is IBinaryOperation { OperatorKind: BinaryOperatorKind.Subtract, RightOperand.ConstantValue.HasValue: true } subtraction)
+        {
+            bound = SkipImplicitConversions(subtraction.LeftOperand);
+        }
+
+        return bound is IPropertyReferenceOperation { Property.Name: "Length" or "Count" or "LongLength", Instance: { } collection } ? collection : null;
+    }
+
+    private static IOperation? InitialValue(IForLoopOperation loop, ILocalSymbol index)
+    {
+        foreach (var statement in loop.Before)
+        {
+            foreach (var operation in statement.DescendantsAndSelf())
+            {
+                if (operation is IVariableDeclaratorOperation { Initializer.Value: { } value } declarator
+                    && SymbolEqualityComparer.Default.Equals(declarator.Symbol, index))
+                {
+                    return value;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsLocal(IOperation operation, ILocalSymbol local) =>
+        SkipImplicitConversions(operation) is ILocalReferenceOperation reference && SymbolEqualityComparer.Default.Equals(reference.Local, local);
+
+    private static IOperation? SkipImplicitConversions(IOperation? operation)
+    {
+        while (operation is IConversionOperation { IsImplicit: true } conversion)
+        {
+            operation = conversion.Operand;
+        }
+
+        return operation;
+    }
+}
