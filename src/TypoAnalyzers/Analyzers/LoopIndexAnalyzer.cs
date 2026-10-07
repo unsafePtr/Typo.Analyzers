@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
 using TypoAnalyzers.Core;
@@ -55,6 +56,7 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
                 case IArrayElementReferenceOperation { Indices.Length: 1 } element
                     when constantAccess is null
                         && element.Indices[0].ConstantValue.HasValue
+                        && !IsBaseReference(element)
                         && OperationEquivalence.AreEquivalent(element.ArrayReference, collection):
                     constantAccess = element;
                     break;
@@ -62,6 +64,7 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
                 case IPropertyReferenceOperation { Property.IsIndexer: true, Arguments.Length: 1 } indexer
                     when constantAccess is null
                         && indexer.Arguments[0].Value.ConstantValue.HasValue
+                        && !IsBaseReference(indexer)
                         && OperationEquivalence.AreEquivalent(indexer.Instance, collection):
                     constantAccess = indexer;
                     break;
@@ -82,6 +85,16 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
     {
         IArrayElementReferenceOperation element => !OperationEquivalence.AreEquivalent(element.ArrayReference, collection),
         IArgumentOperation { Parent: IPropertyReferenceOperation { Property.IsIndexer: true } indexer } => !OperationEquivalence.AreEquivalent(indexer.Instance, collection),
+        _ => false,
+    };
+
+    // 'ref items[0]' or '&items[0]' is the start of the buffer, as in 'Unsafe.Add(ref items[0], offset)', not a read of its first element.
+    private static bool IsBaseReference(IOperation access) => access.Parent switch
+    {
+        IArgumentOperation argument => argument.Parameter?.RefKind is RefKind.Ref or RefKind.RefReadOnlyParameter
+            || (argument.Parameter?.RefKind == RefKind.In && argument.Syntax is ArgumentSyntax { RefKindKeyword.RawKind: not 0 }),
+        IAddressOfOperation => true,
+        IVariableInitializerOperation { Parent: IVariableDeclaratorOperation { Symbol.RefKind: not RefKind.None } } => true,
         _ => false,
     };
 

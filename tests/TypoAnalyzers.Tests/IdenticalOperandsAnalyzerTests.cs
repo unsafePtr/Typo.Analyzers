@@ -15,6 +15,72 @@ public sealed class IdenticalOperandsAnalyzerTests
             .WithArguments(duplicate, original, op);
 
     [Fact]
+    public Task Runtime_SizeOfEnumVersusUnderlyingIsSilent() => Verify.VerifyAsync(
+        """
+        public enum Flags : ulong { None }
+
+        public static class C
+        {
+            public static unsafe bool Same() => sizeof(Flags) == sizeof(ulong);
+        }
+        """);
+
+    [Fact]
+    public Task SizeOfSameTypeReports() => Verify.VerifyAsync(
+        """
+        public enum Flags : ulong { None }
+
+        public static class C
+        {
+            public static unsafe bool Same() => {|#1:sizeof(Flags)|} == {|#0:sizeof(Flags)|};
+        }
+        """,
+        Repeat("sizeof(Flags)", "sizeof(Flags)", "=="));
+
+    [Fact]
+    public Task Runtime_AwaitBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        using System.Threading.Tasks;
+
+        public static class C
+        {
+            public static async Task<bool> M(Task body, Task headers, bool duplex) =>
+                body.IsCompleted
+                || !duplex
+                || await Task.WhenAny(body, headers).ConfigureAwait(false) == body
+                || body.IsCompleted;
+        }
+        """);
+
+    [Fact]
+    public Task AwaitBetweenRepeatedFieldReadsIsSilent() => Verify.VerifyAsync(
+        """
+        using System.Threading.Tasks;
+
+        public sealed class C
+        {
+            private bool _disposed;
+
+            private Task<bool> FlushAsync() => Task.FromResult(false);
+
+            public async Task<bool> M() => _disposed || await FlushAsync() || _disposed;
+        }
+        """);
+
+    [Fact]
+    public Task AwaitDoesNotHideRepeatedLocalRead() => Verify.VerifyAsync(
+        """
+        using System.Threading.Tasks;
+
+        public static class C
+        {
+            public static async Task<bool> M(bool done, Task<bool> other) =>
+                {|#1:done|} || await other || {|#0:done|};
+        }
+        """,
+        Repeat("done", "done", "||"));
+
+    [Fact]
     public Task SqlSugar_DuplicateTypeTestOnProperty() => Verify.VerifyAsync(
         """
         public sealed class Column { public object Value { get; set; } }

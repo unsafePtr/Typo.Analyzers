@@ -292,9 +292,12 @@ internal static class OperationEquivalence
             case ITypeOfOperation typeOf:
                 return SameType(typeOf.TypeOperand, ((ITypeOfOperation)y).TypeOperand);
 
+            // 'sizeof(Flags) == sizeof(ulong)' asserts an enum's underlying size, so equal constants from different types are not a repeat.
+            case ISizeOfOperation sizeOf:
+                return SameType(sizeOf.TypeOperand, ((ISizeOfOperation)y).TypeOperand);
+
             case IDefaultValueOperation:
             case INameOfOperation:
-            case ISizeOfOperation:
                 return SameConstant(x, y);
 
             default:

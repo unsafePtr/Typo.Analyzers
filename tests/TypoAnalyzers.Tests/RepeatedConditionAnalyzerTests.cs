@@ -205,6 +205,97 @@ public sealed class RepeatedConditionAnalyzerTests
         Expect(Descriptors.RepeatedNestedCondition, "x == null", "false"));
 
     [Fact]
+    public Task Runtime_DoubleCheckedLockingIsSilent() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static readonly object s_lock = new();
+            private static object s_value;
+            private static object Value { get; set; }
+
+            public static object Get()
+            {
+                if (s_value == null)
+                {
+                    lock (s_lock)
+                    {
+                        if (s_value == null)
+                        {
+                            s_value = new object();
+                        }
+                    }
+                }
+
+                if (Value == null)
+                {
+                    lock (s_lock)
+                    {
+                        if (Value == null)
+                        {
+                            Value = new object();
+                        }
+                    }
+                }
+
+                return s_value;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task LockDoesNotHideRepeatedLocalCheck() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static readonly object s_lock = new();
+
+            public static int M(string x)
+            {
+                if ({|#1:x == null|})
+                {
+                    lock (s_lock)
+                    {
+                        if ({|#0:x == null|})
+                        {
+                            return 1;
+                        }
+                    }
+                }
+
+                return 2;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "x == null", "true"));
+
+    [Fact]
+    public Task LockInsideBothChecksStillReports() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static readonly object s_lock = new();
+            private static object s_value;
+
+            public static int M()
+            {
+                lock (s_lock)
+                {
+                    if ({|#1:s_value == null|})
+                    {
+                        if ({|#0:s_value == null|})
+                        {
+                            return 1;
+                        }
+                    }
+                }
+
+                return 2;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "s_value == null", "true"));
+
+    [Fact]
     public Task NestedCheckRepeatsConjunct() => Verify.VerifyAsync(
         """
         public static class C

@@ -37,6 +37,35 @@ public sealed class LoopIndexAnalyzerTests
         Verify.Diagnostic(Descriptors.ConstantIndexInLoop).WithLocation(0).WithArguments("currentLevel.BlockInfos", "i", "currentLevel.BlockInfos[0]"));
 
     [Fact]
+    public Task Runtime_RefToFirstElementIsBufferStart() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public static class C
+        {
+            private static ref T Add<T>(ref T source, nint offset) => ref source;
+
+            private static void Write(ref int destination, int value) => destination = value;
+
+            public static void Fill(Span<int> result, int[] values)
+            {
+                nint destinationIndex = -1;
+                for (nint i = 0; i < result.Length; i++)
+                {
+                    destinationIndex++;
+                    Write(ref Add(ref result[0], destinationIndex), values[i]);
+                }
+
+                for (var i = 0; i < values.Length; i++)
+                {
+                    ref var start = ref values[0];
+                    Write(ref Add(ref start, i), 0);
+                }
+            }
+        }
+        """);
+
+    [Fact]
     public Task ListIndexerWithConstant() => Verify.VerifyAsync(
         """
         using System.Collections.Generic;

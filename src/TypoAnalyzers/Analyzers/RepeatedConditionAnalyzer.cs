@@ -90,6 +90,7 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
         }
 
         var crossedLoop = false;
+        var crossedLock = false;
         var onlyElseIfLinks = true;
         var child = (IOperation)inner;
         for (var ancestor = inner.Parent; ancestor is not null; child = ancestor, ancestor = ancestor.Parent)
@@ -104,13 +105,18 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
                     onlyElseIfLinks = false;
                     continue;
 
+                case ILockOperation:
+                    crossedLock = true;
+                    onlyElseIfLinks = false;
+                    continue;
+
                 case IConditionalOperation { Syntax: IfStatementSyntax } outer:
                     // A statement can only sit inside an if's condition through a lambda, which already ended the walk, so the child is the then or else branch.
                     var knownTrue = ReferenceEquals(child, outer.WhenTrue);
                     onlyElseIfLinks &= !knownTrue && child is IConditionalOperation { Syntax: IfStatementSyntax };
 
                     // Pure else-if chains are reported by TYPO0003.
-                    if (!onlyElseIfLinks && TryReportKnown(context, inner, outer, knownTrue, crossedLoop, purity))
+                    if (!onlyElseIfLinks && TryReportKnown(context, inner, outer, knownTrue, crossedLoop, crossedLock, purity))
                     {
                         return;
                     }
@@ -124,7 +130,7 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static bool TryReportKnown(OperationAnalysisContext context, IConditionalOperation inner, IConditionalOperation outer, bool knownTrue, bool crossedLoop, PurityOracle purity)
+    private static bool TryReportKnown(OperationAnalysisContext context, IConditionalOperation inner, IConditionalOperation outer, bool knownTrue, bool crossedLoop, bool crossedLock, PurityOracle purity)
     {
         // Inside 'then' every conjunct of the outer condition is true; inside 'else' every disjunct is false.
         var kind = knownTrue ? BinaryOperatorKind.ConditionalAnd : BinaryOperatorKind.ConditionalOr;
@@ -153,9 +159,16 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
                         continue;
                     }
 
+                    // Double-checked locking: another thread may have changed shared state while this one waited for the lock.
+                    var reads = ReadSet.Of(part);
+                    if (crossedLock && reads.ReadsState)
+                    {
+                        return false;
+                    }
+
                     var branch = knownTrue ? outer.WhenTrue : outer.WhenFalse!;
                     TextSpan? after = crossedLoop ? null : TextSpan.FromBounds(inner.Syntax.SpanStart, branch.Syntax.Span.End);
-                    if (ReadSet.Of(part).MayBeChangedBy(branch, purity, after))
+                    if (reads.MayBeChangedBy(branch, purity, after))
                     {
                         return false;
                     }

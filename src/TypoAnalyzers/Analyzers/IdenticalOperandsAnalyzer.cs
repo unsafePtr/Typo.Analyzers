@@ -73,7 +73,9 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
 
                 for (var j = 0; j < i; j++)
                 {
-                    if (hashes[j] == hashes[i] && OperationEquivalence.AreEquivalent(operands[j], candidate))
+                    if (hashes[j] == hashes[i]
+                        && OperationEquivalence.AreEquivalent(operands[j], candidate)
+                        && !AwaitsBetween(operands, j, i))
                     {
                         Report(context, candidate, operands[j], OperatorText(root));
                         break;
@@ -86,6 +88,29 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
             ReturnHashes(hashes);
             OperandChain.Return(operands);
         }
+    }
+
+    // In 't.IsCompleted || await Task.WhenAny(t, u) == t || t.IsCompleted' the await lets the second read see a different value.
+    // A plain call in between is not enough, since 'p.Size == 4 && Align(p) > 4 && p.Size == 4' is a real copy-paste bug.
+    private static bool AwaitsBetween(List<IOperation> operands, int first, int second)
+    {
+        if (second - first < 2 || !ReadSet.Of(operands[second]).ReadsState)
+        {
+            return false;
+        }
+
+        for (var k = first + 1; k < second; k++)
+        {
+            foreach (var operation in operands[k].DescendantsAndSelf())
+            {
+                if (operation is IAwaitOperation)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static void AnalyzeBinaryPattern(OperationAnalysisContext context)
