@@ -5,6 +5,7 @@ namespace TypoAnalyzers;
 internal static class Descriptors
 {
     private const string Correctness = "Correctness";
+    private const string HelpLinkBase = "https://github.com/unsafePtr/TypoAnalyzer#";
 
     public static readonly DiagnosticDescriptor IdenticalSubExpressions = new(
         id: "TYPO0001",
@@ -13,7 +14,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "The same operand appears twice in a chain of one operator, or on both sides of an operator whose result then becomes constant. One of the copies was usually meant to be edited after copy-paste.");
+        description: "The same operand appears twice in a chain of one operator, or on both sides of an operator whose result then becomes constant. One of the copies was usually meant to be edited after copy-paste.",
+        helpLinkUri: HelpLinkBase + "typo0001");
 
     public static readonly DiagnosticDescriptor ComparedWithItself = new(
         id: "TYPO0002",
@@ -22,7 +24,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A value is passed to its own comparison or string search method, or both arguments of a comparison are the same, so the result is constant. Comparison methods are often copied and the 'other' side left unedited.");
+        description: "A value is passed to its own comparison or string search method, or both arguments of a comparison are the same, so the result is constant. Comparison methods are often copied and the 'other' side left unedited.",
+        helpLinkUri: HelpLinkBase + "typo0002");
 
     public static readonly DiagnosticDescriptor RepeatedElseIfCondition = new(
         id: "TYPO0003",
@@ -31,7 +34,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "An else-if branch repeats a condition that an earlier branch already tested, so it is unreachable.");
+        description: "An else-if branch repeats a condition that an earlier branch already tested, so it is unreachable.",
+        helpLinkUri: HelpLinkBase + "typo0003");
 
     public static readonly DiagnosticDescriptor RepeatedAdjacentCondition = new(
         id: "TYPO0004",
@@ -40,7 +44,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "An 'if' statement tests the same condition as the 'if' right before it, or as an earlier 'if' that always returns, throws or jumps away, and nothing in between can change it. Either the later one was meant to test something else, or the two should be merged.");
+        description: "An 'if' statement tests the same condition as the 'if' right before it, or as an earlier 'if' that always returns, throws or jumps away, and nothing in between can change it. Either the later one was meant to test something else, or the two should be merged.",
+        helpLinkUri: HelpLinkBase + "typo0004");
 
     public static readonly DiagnosticDescriptor RepeatedNestedCondition = new(
         id: "TYPO0005",
@@ -49,7 +54,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A nested 'if' repeats a check that an enclosing 'if' already made, and nothing in between can change its value. The inner check was usually meant to test something else.");
+        description: "A nested 'if' repeats a check that an enclosing 'if' already made, and nothing in between can change its value. The inner check was usually meant to test something else.",
+        helpLinkUri: HelpLinkBase + "typo0005");
 
     public static readonly DiagnosticDescriptor IdenticalBranches = new(
         id: "TYPO0006",
@@ -58,7 +64,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "The 'then' and 'else' parts of an if statement or conditional expression are the same, so the condition does nothing.");
+        description: "The 'then' and 'else' parts of an if statement or conditional expression are the same, so the condition does nothing.",
+        helpLinkUri: HelpLinkBase + "typo0006");
 
     public static readonly DiagnosticDescriptor DuplicateBranchBody = new(
         id: "TYPO0007",
@@ -67,7 +74,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "Two cases of a switch, or two branches of an if-else chain, have identical bodies. When the bodies are meant to differ by one value, the copy was usually not edited; otherwise merge the labels.");
+        description: "Two cases of a switch, or two branches of an if-else chain, have identical bodies. When the bodies are meant to differ by one value, the copy was usually not edited; otherwise merge the labels.",
+        helpLinkUri: HelpLinkBase + "typo0007");
 
     public static readonly DiagnosticDescriptor OverwrittenBeforeUse = new(
         id: "TYPO0008",
@@ -76,7 +84,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "The same field, property or element is assigned twice in a row with nothing reading it in between. The second assignment was usually meant for a different target.");
+        description: "The same field, property or element is assigned twice in a row with nothing reading it in between. The second assignment was usually meant for a different target.",
+        helpLinkUri: HelpLinkBase + "typo0008");
 
     public static readonly DiagnosticDescriptor ConstantIndexInLoop = new(
         id: "TYPO0009",
@@ -85,7 +94,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A for loop iterates over a collection, but its body indexes the collection with a constant and uses the loop variable, if at all, only to index other collections.");
+        description: "A for loop iterates over a collection, but its body indexes the collection with a constant and uses the loop variable, if at all, only to index other collections.",
+        helpLinkUri: HelpLinkBase + "typo0009");
 
     public static readonly DiagnosticDescriptor StringCaseMismatch = new(
         id: "TYPO0010",
@@ -94,7 +104,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A string converted with ToLower or ToUpper is compared with, or searched for, text containing letters of the other case, so the check always fails.");
+        description: "A string converted with ToLower or ToUpper is compared with, or searched for, text containing letters of the other case, so the check always fails.",
+        helpLinkUri: HelpLinkBase + "typo0010");
 
     public static readonly DiagnosticDescriptor SimilarLineAnomaly = new(
         id: "TYPO0011",
@@ -103,7 +114,8 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "In a run of three or more similar statements, declarations, conditions or arguments, each item pairs matching names such as X with X and Y with Y, but one item repeats a name from another where a different one was expected. This heuristic is reported as a suggestion.");
+        description: "In a run of three or more similar statements, declarations, conditions or arguments, each item pairs matching names such as X with X and Y with Y, but one item repeats a name from another where a different one was expected. This heuristic is reported as a suggestion.",
+        helpLinkUri: HelpLinkBase + "typo0011");
 
     public static readonly DiagnosticDescriptor SimilarPairAnomaly = new(
         id: "TYPO0012",
@@ -112,5 +124,6 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Two adjacent similar statements, declarations, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011. The 'TYPO0012.scan' option in .editorconfig limits it to some kinds of items, as in 'TYPO0012.scan = declarations, arguments'.");
+        description: "Two adjacent similar statements, declarations, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011. The 'TYPO0012.scan' option in .editorconfig limits it to some kinds of items, as in 'TYPO0012.scan = declarations, arguments'.",
+        helpLinkUri: HelpLinkBase + "typo0012");
 }

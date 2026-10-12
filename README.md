@@ -6,18 +6,18 @@ Roslyn analyzers for copy-paste and typo bugs that the common open-source .NET a
 
 | ID | Analyzer | Finds |
 |---|---|---|
-| TYPO0001 | IdenticalOperandsAnalyzer | Repeated operand in a `\|\|` / `&&` / `\|` / `&` / `^` / `or` / `and` chain; identical operands of a comparison, `-`, `/` or `%` |
-| TYPO0002 | SelfArgumentAnalyzer | `x.Equals(x)`, `x.CompareTo(x)`, `Equals(a, a)`, `comparer.Compare(a, a)`, `Math.Max(a, a)`, `s.Contains(s)` |
-| TYPO0003 | RepeatedConditionAnalyzer | `else if` repeating a condition, or one disjunct of a condition, tested earlier in the chain |
-| TYPO0004 | RepeatedConditionAnalyzer | An `if` repeating the condition of the `if` right before it, or of an earlier `if` that always exits, when nothing in between can change it |
-| TYPO0005 | RepeatedConditionAnalyzer | Nested `if` repeating, or negating, a check of an enclosing `if` |
-| TYPO0006 | IdenticalBranchesAnalyzer | Identical `then` and `else` parts of `if` or `?:` |
-| TYPO0007 | IdenticalBranchesAnalyzer | Two `switch` cases, switch-expression arms or else-if branches with identical non-trivial bodies |
-| TYPO0008 | RepeatedAssignmentAnalyzer | Field, auto-property, array element or collection entry written twice with no read in between |
-| TYPO0009 | LoopIndexAnalyzer | `for` loop over a collection (forward, `Count - 1` or reverse) that reads `[0]` and uses the loop variable, if at all, only to index other collections |
-| TYPO0010 | StringCaseAnalyzer | Lowercased or uppercased value compared with, or searched for, text with letters of the other case |
-| TYPO0011 | SimilarRunAnalyzer | One item of a run of three or more similar statements, declarations, conditions or arguments repeating a neighbour's name, as in `Z += other.Y`, `maxY = Math.Max(maxY, p.X)` or `new Rect(r.Left, r.Top, r.Right, r.Right)` (Info severity) |
-| TYPO0012 | SimilarRunAnalyzer | The second of two similar statements, declarations, conditions or arguments keeping a name built from the first one's word, as in `Height == other.Width`, `var minY = pts.Min(p => p.X)` or `new Vec(p.X, p.X)` (Info severity) |
+| <a id="typo0001"></a>TYPO0001 | IdenticalOperandsAnalyzer | Repeated operand in a `\|\|` / `&&` / `\|` / `&` / `^` / `or` / `and` chain; identical operands of a comparison, `-`, `/` or `%` |
+| <a id="typo0002"></a>TYPO0002 | SelfArgumentAnalyzer | `x.Equals(x)`, `x.CompareTo(x)`, `Equals(a, a)`, `comparer.Compare(a, a)`, `Math.Max(a, a)`, `s.Contains(s)` |
+| <a id="typo0003"></a>TYPO0003 | RepeatedConditionAnalyzer | `else if` repeating a condition, or one disjunct of a condition, tested earlier in the chain |
+| <a id="typo0004"></a>TYPO0004 | RepeatedConditionAnalyzer | An `if` repeating the condition of the `if` right before it, or of an earlier `if` that always exits, when nothing in between can change it |
+| <a id="typo0005"></a>TYPO0005 | RepeatedConditionAnalyzer | Nested `if` repeating, or negating, a check of an enclosing `if` |
+| <a id="typo0006"></a>TYPO0006 | IdenticalBranchesAnalyzer | Identical `then` and `else` parts of `if` or `?:` |
+| <a id="typo0007"></a>TYPO0007 | IdenticalBranchesAnalyzer | Two `switch` cases, switch-expression arms or else-if branches with identical non-trivial bodies |
+| <a id="typo0008"></a>TYPO0008 | RepeatedAssignmentAnalyzer | Field, auto-property, array element or collection entry written twice with no read in between |
+| <a id="typo0009"></a>TYPO0009 | LoopIndexAnalyzer | `for` loop over a collection (forward, `Count - 1` or reverse) that reads `[0]` and uses the loop variable, if at all, only to index other collections |
+| <a id="typo0010"></a>TYPO0010 | StringCaseAnalyzer | Lowercased or uppercased value compared with, or searched for, text with letters of the other case |
+| <a id="typo0011"></a>TYPO0011 | SimilarRunAnalyzer | One item of a run of three or more similar statements, declarations, conditions or arguments repeating a neighbour's name, as in `Z += other.Y`, `maxY = Math.Max(maxY, p.X)` or `new Rect(r.Left, r.Top, r.Right, r.Right)` (Info severity) |
+| <a id="typo0012"></a>TYPO0012 | SimilarRunAnalyzer | The second of two similar statements, declarations, conditions or arguments keeping a name built from the first one's word, as in `Height == other.Width`, `var minY = pts.Min(p => p.X)` or `new Vec(p.X, p.X)` (Info severity) |
 
 Every analyzer shares the core in `src/TypoAnalyzers/Core`:
 - `OperationEquivalence`: semantic expression equality, where `a + b` matches `b + a` and `a < b` matches `b > a`, plus a matching hash.
