@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # The workflows pin actions by major tag; this catches the ones that go stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      # Pinned to the Roslyn that VS 2026 18.0 and the first .NET 10 SDK ship; see Directory.Packages.props.
+      - dependency-name: Microsoft.CodeAnalysis.CSharp
+      - dependency-name: Microsoft.CodeAnalysis.CSharp.Workspaces

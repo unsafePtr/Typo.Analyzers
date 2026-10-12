@@ -1,0 +1,119 @@
+name: Build and Publish to NuGet
+
+# Release-only: tags and manual dispatch. Ordinary pushes and PRs are covered by ci.yml.
+on:
+  push:
+    tags:
+      - 'v*.*.*'      # v0.1.0, v0.2.0-preview.3, etc.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version (e.g., 0.1.0). Leave empty to build and test without publishing.'
+        required: false
+        type: string
+
+permissions:
+  id-token: write     # required for GitHub OIDC
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Get version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Get version from input
+        if: github.event_name == 'workflow_dispatch' && inputs.version != ''
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: echo "VERSION=$INPUT_VERSION" >> $GITHUB_ENV
+
+      # <Version> in the csproj stays the source of truth so the assembly version matches the package.
+      - name: Validate version matches project
+        if: env.VERSION != ''
+        run: |
+          PROJECT_VERSION=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/TypoAnalyzers/TypoAnalyzers.csproj)
+          if [ "$PROJECT_VERSION" != "$VERSION" ]; then
+            echo "::error::Version ($VERSION) doesn't match TypoAnalyzers.csproj <Version>$PROJECT_VERSION</Version>"
+            exit 1
+          fi
+
+      - name: Setup .NET (from global.json)
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build -c Release --no-restore
+
+      # ci.yml never runs on a tag, so this is the only test gate before a release ships.
+      - name: Test
+        run: dotnet run --project tests/TypoAnalyzers.Tests/TypoAnalyzers.Tests.csproj -c Release --no-build
+
+      - name: Pack
+        if: env.VERSION != ''
+        run: dotnet pack src/TypoAnalyzers/TypoAnalyzers.csproj -c Release --no-build -o ./artifacts
+
+      # The csproj places the analyzer in the package by hand, and a package without it still packs cleanly.
+      - name: Check package contents
+        if: env.VERSION != ''
+        run: unzip -l "./artifacts/TypoAnalyzers.$VERSION.nupkg" | grep -q 'analyzers/dotnet/cs/TypoAnalyzers.dll'
+
+      - name: Upload artifacts
+        if: env.VERSION != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: nupkg
+          path: ./artifacts/*.nupkg
+
+  publish:
+    needs: build
+    runs-on: ubuntu-26.04
+    # Only publish on version tags or manual trigger with version
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
+    permissions:
+      contents: write   # GitHub release
+      id-token: write   # enable GitHub OIDC token issuance for this job
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: nupkg
+          path: ./artifacts
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: NuGet login (OIDC → temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}   # nuget.org profile name (NOT email)
+
+      - name: Publish to NuGet
+        run: dotnet nuget push ./artifacts/*.nupkg --source https://api.nuget.org/v3/index.json --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --skip-duplicate
+
+      # A dispatch run from a branch has no tag to hang the release on.
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ./artifacts/*.nupkg
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}

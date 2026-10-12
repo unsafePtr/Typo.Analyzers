@@ -90,3 +90,15 @@ dotnet test --project tests/TypoAnalyzers.Tests/TypoAnalyzers.Tests.csproj --cov
 ```
 
 The analyzer targets `netstandard2.0` and compiles against Roslyn 5.0.0 so it loads in Visual Studio 2026 and every .NET 10 SDK.
+
+## Release
+
+`ci.yml` builds and tests every push and pull request to `main` on Ubuntu and Windows.
+`publish.yml` builds and tests again when a `v*.*.*` tag is pushed, then publishes to nuget.org:
+1. Set `<Version>` in `TypoAnalyzers.csproj`; the workflow fails when the tag does not match it.
+2. Move the released rules from `AnalyzerReleases.Unshipped.md` to `AnalyzerReleases.Shipped.md` under a `## Release x.y.z` header.
+3. Push the tag, as in `git tag v0.1.0` and `git push origin v0.1.0`.
+
+Publishing uses nuget.org trusted publishing instead of an API key.
+It needs a `NUGET_USER` repository secret with the nuget.org profile name, and a nuget.org policy that trusts `publish.yml`.
+The package readme is `PACKAGE.md`, so a new rule goes into its table too; `HelpLinkTests` fails until it does.
