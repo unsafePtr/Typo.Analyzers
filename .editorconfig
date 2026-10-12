@@ -89,7 +89,7 @@ csharp_indent_braces = false
 
 # CA1852: Seal internal types
 dotnet_diagnostic.CA1852.severity = error
-# The test project sees internals through InternalsVisibleTo, which otherwise turns CA1852 off for the whole assembly.
+# Without this option CA1852 skips every assembly that grants InternalsVisibleTo.
 dotnet_code_quality.CA1852.ignore_internalsvisibleto = true
 # Argument throw helpers — errors so they get fixed where they are introduced.
 # They suggest APIs netstandard2.0 lacks, so they only fire in the test project.
