@@ -56,7 +56,7 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - `CultureIndependenceTests` run analyzers under Turkish culture, where `"i".ToUpper()` is `"İ"`, and first assert that the culture really behaves that way.
 - `<InvariantGlobalization>` is deliberately not used: it does not apply to a library loaded by the compiler, and in the test host it would hide exactly the bugs these tests look for.
 
-`-p:WarningLevel=0` hides every analyzer diagnostic, even ones raised to errors in `.editorconfig`. Both projects therefore ignore an incoming `WarningLevel` (`TreatAsLocalProperty`). In consuming projects the same flag hides TypoAnalyzers' own findings.
+`-p:WarningLevel=0` hides every analyzer diagnostic, even ones raised to errors in `.editorconfig`. `Directory.Build.props` therefore makes every project ignore an incoming `WarningLevel` (`TreatAsLocalProperty`). In consuming projects the same flag hides TypoAnalyzers' own findings.
 
 ## Known gaps
 

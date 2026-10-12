@@ -1,8 +1,6 @@
-<!-- A global -p:WarningLevel=0 would hide every analyzer diagnostic, including the culture rules raised to errors in .editorconfig. -->
-<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="WarningLevel">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <WarningLevel>9999</WarningLevel>
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>

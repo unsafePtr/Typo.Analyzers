@@ -1,11 +1,26 @@
-<Project>
+<!-- A global -p:WarningLevel=0 would hide every analyzer diagnostic, including the rules raised to errors in .editorconfig. -->
+<Project TreatAsLocalProperty="WarningLevel">
 
   <PropertyGroup>
+    <WarningLevel>9999</WarningLevel>
     <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- netstandard2.0 projects do not get the .NET analyzers by default; the globalization rules in .editorconfig need them. -->
+  </PropertyGroup>
+
+  <!--
+    Enforces the .editorconfig rules in the command-line build, not only in the IDE.
+    Without AnalysisLevel the build ignores the severity suffix of an option such as csharp_style_var_elsewhere = true:error.
+    The CA rules are off by default for netstandard2.0, hence EnableNETAnalyzers.
+    IDE0005 runs on build only with a documentation file.
+    CS1591 and CS1573 are silenced because a doc comment covers only what the code cannot say, not every member or parameter.
+  -->
+  <PropertyGroup>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest</AnalysisLevel>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
 
 </Project>

@@ -1,5 +1,4 @@
 using System.Globalization;
-using Microsoft.CodeAnalysis.Testing;
 using Xunit;
 
 namespace TypoAnalyzers.Tests;

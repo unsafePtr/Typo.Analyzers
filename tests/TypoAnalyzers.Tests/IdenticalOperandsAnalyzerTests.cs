@@ -1,5 +1,4 @@
 using Microsoft.CodeAnalysis.Testing;
-using TypoAnalyzers.Analyzers;
 using Xunit;
 using Verify = TypoAnalyzers.Tests.Verifier<TypoAnalyzers.Analyzers.IdenticalOperandsAnalyzer>;
 
