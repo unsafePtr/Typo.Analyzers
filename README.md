@@ -2,6 +2,16 @@
 
 Roslyn analyzers for copy-paste and typo bugs that the common open-source .NET analyzers don't cover.
 
+The rules favour recall over precision, because a false positive costs a reader a glance while a missed bug ships:
+1. Report every potential problem, even when some of the flagged code turns out to be correct.
+2. Skip a finding only when it is certainly a false positive, that is, when the analyzer can show the code is meant that way.
+
+A rule is never narrowed to cut noise when that also loses real bugs.
+The skip has to match only the correct case, such as two identical reads with a mutating call on the same struct between them.
+Code that only might make a repeat legitimate does not count.
+A write between two equal checks may just make the second one dead: `if (!map.ContainsKey(k)) { map[k] = 0; }` twice.
+TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info severity instead of staying silent.
+
 ## Rules
 
 | ID | Analyzer | Finds |
