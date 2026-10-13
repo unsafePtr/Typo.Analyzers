@@ -8,8 +8,9 @@ namespace TypoAnalyzers.Core;
 /// Semantic structural equality of operation trees: <c>this.X</c> equals <c>X</c>, implicit conversions are ignored, commutative operators match in either order, and <c>a &lt; b</c> matches <c>b &gt; a</c>.
 /// </summary>
 /// <remarks>
-/// Unknown operation kinds compare as different, so new language constructs can only cause missed reports, never false ones.
-/// Trees too deep to walk safely (see <see cref="Limits.CanRecurse"/>) compare as different for the same reason.
+/// Unknown operation kinds compare as different, so a caller reporting on equivalence only misses reports on new constructs.
+/// LoopIndexAnalyzer instead takes non-equivalence as evidence of another collection, so there an unknown kind can add a report.
+/// Trees too deep to walk safely (see <see cref="Limits.CanRecurse"/>) compare as different, with the same two effects.
 /// </remarks>
 internal static class OperationEquivalence
 {

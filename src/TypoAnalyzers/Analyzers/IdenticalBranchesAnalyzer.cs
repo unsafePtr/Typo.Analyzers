@@ -10,8 +10,9 @@ namespace TypoAnalyzers.Analyzers;
 /// TYPO0006 identical 'then' and 'else' parts, TYPO0007 two switch cases or else-if branches with identical bodies.
 /// </summary>
 /// <remarks>
-/// Bodies are compared as syntax, which is exact for copy-paste because both copies sit in the same scope and bind to the same symbols.
-/// TYPO0007 ignores bodies without calls, object or array creation or assignments, since <c>A => true, B => true</c> is idiomatic, and bodies that only throw.
+/// Bodies are compared as syntax and then by binding, because equal text can bind to different symbols.
+/// TYPO0007 ignores bodies without calls, object or array creation, assignments or increments, since <c>A => true, B => true</c> is idiomatic.
+/// It also ignores a lone throw, though a switch section that wraps it in braces is still compared.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer

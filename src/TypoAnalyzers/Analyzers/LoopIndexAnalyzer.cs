@@ -8,7 +8,8 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0009: a for loop over a collection whose body reads <c>items[0]</c> and uses the loop variable, if at all, only to index other collections.
+/// TYPO0009: a for loop over a collection whose body reads a constant index such as <c>items[0]</c>.
+/// The loop variable is used, if at all, only to index other collections.
 /// </summary>
 /// <remarks>
 /// The collection comes from the bound (<c>i &lt; items.Length</c>, <c>i &lt;= items.Count - 1</c>) or, for reverse loops such as <c>for (var i = items.Length - 1; i &gt;= 0; i--)</c>, from the initializer.
@@ -116,7 +117,6 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    // Accepts items.Length, items.Count or items.LongLength, optionally minus a constant.
     private static IOperation? CollectionOfBound(IOperation? bound)
     {
         bound = SkipImplicitConversions(bound);

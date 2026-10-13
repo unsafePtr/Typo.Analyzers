@@ -91,8 +91,8 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
     }
 
     // In 't.IsCompleted || await Task.WhenAny(t, u) == t || t.IsCompleted' the await lets the second read see a different value.
-    // In '!r.Read() || r.TokenType != X || !r.Read() || r.TokenType != X' the Read call moves the reader between the reads.
-    // An unknown call is not enough: 'p.Size == 4 && p.Align() > 4 && p.Size == 4' is a real copy-paste bug.
+    // On a Utf8JsonReader, '!r.Read() || r.TokenType != X || !r.Read() || r.TokenType != X' moves the struct between the reads.
+    // On a class only MoveNext and Stream calls count, so 'p.Size == 4 && p.Align() > 4 && p.Size == 4' is a real bug.
     private static bool ChangedBetween(List<IOperation> operands, int first, int second, PurityOracle purity)
     {
         if (second - first < 2)

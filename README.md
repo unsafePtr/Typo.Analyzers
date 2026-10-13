@@ -20,23 +20,23 @@ TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info
 | <a id="typo0002"></a>TYPO0002 | SelfArgumentAnalyzer | `x.Equals(x)`, `x.CompareTo(x)`, `Equals(a, a)`, `comparer.Compare(a, a)`, `Math.Max(a, a)`, `s.Contains(s)` |
 | <a id="typo0003"></a>TYPO0003 | RepeatedConditionAnalyzer | `else if` repeating a condition, or one disjunct of a condition, tested earlier in the chain |
 | <a id="typo0004"></a>TYPO0004 | RepeatedConditionAnalyzer | An `if` repeating the condition of the `if` right before it, or of an earlier `if` that always exits, when nothing in between can change it |
-| <a id="typo0005"></a>TYPO0005 | RepeatedConditionAnalyzer | Nested `if` repeating, or negating, a check of an enclosing `if` |
+| <a id="typo0005"></a>TYPO0005 | RepeatedConditionAnalyzer | Nested `if` or later `else if` repeating, or negating, a check of an enclosing `if`, as in `if (s == null) … else if (s != null)` |
 | <a id="typo0006"></a>TYPO0006 | IdenticalBranchesAnalyzer | Identical `then` and `else` parts of `if` or `?:` |
 | <a id="typo0007"></a>TYPO0007 | IdenticalBranchesAnalyzer | Two `switch` cases, switch-expression arms or else-if branches with identical non-trivial bodies |
 | <a id="typo0008"></a>TYPO0008 | RepeatedAssignmentAnalyzer | Field, auto-property, array element or collection entry written twice with no read in between |
-| <a id="typo0009"></a>TYPO0009 | LoopIndexAnalyzer | `for` loop over a collection (forward, `Count - 1` or reverse) that reads `[0]` and uses the loop variable, if at all, only to index other collections |
+| <a id="typo0009"></a>TYPO0009 | LoopIndexAnalyzer | `for` loop over a collection (forward, `Count - 1` or reverse) that reads a constant index such as `[0]` and uses the loop variable, if at all, only to index other collections |
 | <a id="typo0010"></a>TYPO0010 | StringCaseAnalyzer | Lowercased or uppercased value compared with, or searched for, text with letters of the other case |
-| <a id="typo0011"></a>TYPO0011 | SimilarRunAnalyzer | One item of a run of three or more similar statements, declarations, conditions or arguments repeating a neighbour's name, as in `Z += other.Y`, `maxY = Math.Max(maxY, p.X)` or `new Rect(r.Left, r.Top, r.Right, r.Right)` (Info severity) |
-| <a id="typo0012"></a>TYPO0012 | SimilarRunAnalyzer | The second of two similar statements, declarations, conditions or arguments keeping a name built from the first one's word, as in `Height == other.Width`, `var minY = pts.Min(p => p.X)` or `new Vec(p.X, p.X)` (Info severity) |
+| <a id="typo0011"></a>TYPO0011 | SimilarRunAnalyzer | One item of a run of three or more similar statements, declarations, initializer members, conditions or arguments repeating a neighbour's name, as in `Z += other.Y`, `maxY = Math.Max(maxY, p.X)` or `new Rect(r.Left, r.Top, r.Right, r.Right)` (Info severity) |
+| <a id="typo0012"></a>TYPO0012 | SimilarRunAnalyzer | The second of two similar statements, declarations, initializer members, conditions or arguments keeping a name built from the first one's word, as in `Height == other.Width`, `var minY = pts.Min(p => p.X)` or `new Vec(p.X, p.X)` (Info severity) |
 
-Every analyzer shares the core in `src/TypoAnalyzers/Core`:
+The analyzers share the core in `src/TypoAnalyzers/Core`, except IdenticalBranchesAnalyzer, which compares syntax:
 - `OperationEquivalence`: semantic expression equality, where `a + b` matches `b + a` and `a < b` matches `b > a`, plus a matching hash.
-- `Negation`: opposite conditions, and one test in different spellings (`x == null`, `x is null`).
-- `PurityOracle`: which calls and getters are side-effect free (clocks and `Guid.NewGuid` are not).
+- `Negation`: one test in different spellings (`x == null`, `x is null`), exact opposites, and tests that exclude each other.
+- `PurityOracle`: which calls and getters are side-effect free (clocks, `Guid.NewGuid` and `Path.GetRandomFileName` are not).
 - `OperandChain`: operator-chain flattening.
-- `ReadSet`: whether code in between can change a condition, including through closures.
+- `ReadSet`: whether code in between can change a condition, including through closures and `Span<T>` arguments.
 - `Jumps`: whether a statement always exits.
-- `Framework`: .NET types versus user types, for the reflexivity exclusions.
+- `Framework`: .NET types versus user types, for the reflexivity skips, TYPO0012's framework values and TYPO0008 initializers.
 - `Limits`: depth and stack guards, so huge generated expressions cannot overflow the compiler's stack.
 
 ## Options
@@ -70,7 +70,7 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 
 ## Known gaps
 
-- Identical one-line `else if` bodies without calls or assignments are skipped on purpose to avoid noise.
+- TYPO0007 skips bodies without a call, object or array creation, assignment or increment, and bodies that are just a `throw`.
 - In TYPO0011 and TYPO0012, numeric literals that are not indexes count as table data and never form a pattern.
 - Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;`, `new Size(b.Width, b.Width)` and swizzles `XX => new(X, X)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`; such lines are suppressed one at a time with `#pragma warning disable` or `[SuppressMessage]`.
 - TYPO0012 never pairs literal copies, all-lower-case compound names such as `dx` and `dy`, or names where one extends the other, such as `Name` and `DisplayName`.

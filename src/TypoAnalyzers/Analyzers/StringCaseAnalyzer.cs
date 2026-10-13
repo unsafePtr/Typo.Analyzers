@@ -12,7 +12,9 @@ namespace TypoAnalyzers.Analyzers;
 /// </summary>
 /// <remarks>
 /// Covers ==, !=, Equals, Contains, StartsWith, EndsWith, IndexOf, LastIndexOf, Replace, 'is' patterns and switch cases.
-/// The text side may be a literal, a constant, a property whose getter returns a literal, an interpolated string or a concatenation; only its constant parts are checked, which is enough because each of them must appear verbatim.
+/// The text side may be a literal, a constant, a property whose getter returns a literal, an interpolated string or a concatenation.
+/// Only its constant parts are checked, which is enough because each of them must appear verbatim.
+/// A text side converted to the other case, as in <c>s.ToUpper() == t.ToLower()</c>, is reported too.
 /// A local counts as case-normalized when its initializer is ToLower/ToUpper and nothing assigns it again.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]

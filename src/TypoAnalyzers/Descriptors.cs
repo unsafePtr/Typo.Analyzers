@@ -24,7 +24,7 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A value is passed to its own comparison or string search method, or both arguments of a comparison are the same, so the result is constant. Comparison methods are often copied and the 'other' side left unedited.",
+        description: "A value is passed to its own comparison or string search method, or as both arguments of a comparison, Max or Min, so the call has a fixed result or just returns the value. Comparison methods are often copied and the 'other' side left unedited.",
         helpLinkUri: HelpLinkBase + "typo0002");
 
     public static readonly DiagnosticDescriptor RepeatedElseIfCondition = new(
@@ -104,7 +104,7 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "A string converted with ToLower or ToUpper is compared with, or searched for, text containing letters of the other case, so the check always fails.",
+        description: "A string converted with ToLower or ToUpper is compared with, or searched for, text containing letters of the other case, so the two never match.",
         helpLinkUri: HelpLinkBase + "typo0010");
 
     public static readonly DiagnosticDescriptor SimilarLineAnomaly = new(
@@ -114,7 +114,7 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "In a run of three or more similar statements, declarations, conditions or arguments, each item pairs matching names such as X with X and Y with Y, but one item repeats a name from another where a different one was expected. This heuristic is reported as a suggestion.",
+        description: "In a run of three or more similar statements, declarations, initializer members, conditions or arguments, each item pairs matching names such as X with X and Y with Y, but one item repeats a name from another where a different one was expected. This heuristic is reported as a suggestion.",
         helpLinkUri: HelpLinkBase + "typo0011");
 
     public static readonly DiagnosticDescriptor SimilarPairAnomaly = new(
@@ -124,6 +124,6 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "Two adjacent similar statements, declarations, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011. The 'TYPO0012.scan' option in .editorconfig limits it to some kinds of items, as in 'TYPO0012.scan = declarations, arguments'.",
+        description: "Two adjacent similar statements, declarations, initializer members, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011. The 'TYPO0012.scan' option in .editorconfig limits it to some kinds of items, as in 'TYPO0012.scan = declarations, arguments'.",
         helpLinkUri: HelpLinkBase + "typo0012");
 }

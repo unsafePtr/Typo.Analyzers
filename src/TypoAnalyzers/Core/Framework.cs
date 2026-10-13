@@ -4,7 +4,10 @@ using Microsoft.CodeAnalysis;
 namespace TypoAnalyzers.Core;
 
 /// <summary>
-/// Separates .NET's own types from the user's, for rules that skip user-defined equality because tests legitimately assert its reflexivity.
+/// Separates .NET's own types from the user's, for rules whose answer depends on who defined a type.
+/// TYPO0001 and TYPO0002 skip user-defined equality, because tests legitimately assert its reflexivity.
+/// TYPO0012 treats framework constants such as float.MaxValue as shared on purpose.
+/// TYPO0008 trusts a framework collection initializer's Add calls to touch only the new collection.
 /// </summary>
 /// <remarks>
 /// Assemblies are recognised by Microsoft's strong-name public key tokens, which every framework and reference assembly carries.

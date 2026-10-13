@@ -17,8 +17,11 @@ namespace TypoAnalyzers.Analyzers;
 /// In runs of three or more (TYPO0011), a key column is one whose fragments (names minus the column's shared prefix and suffix) are all different, so they identify each item.
 /// A second column that matches the key on every item but one, and repeats another item's fragment on that one, is reported.
 /// In a pair (TYPO0012) a changed column can never repeat another item, so the copy is a column that stays the same while the key is renamed, as <c>other.Width</c> does in <c>Width == other.Width &amp;&amp; Height == other.Width</c>.
-/// A pair's key fragments are whole words, every other changed column must follow the same rename, and the unchanged name must contain the first item's word but not the second's.
-/// The guards against deliberate pairs (framework values, renamed enclosing calls, squares such as Multiply(x, x), declaration chains) come from a survey of dotnet/runtime and aspnetcore and are explained where they are applied.
+/// A pair's key fragments are whole words, and every other changed column must follow the same rename.
+/// The unchanged name must contain the first item's word exactly once and must not contain the second's.
+/// The guards against deliberate repeats come from a survey of dotnet/runtime and aspnetcore and are explained on their methods.
+/// Framework values, renamed enclosing calls and squares such as Multiply(x, x) guard pairs only.
+/// Declaration chains such as <c>f8 = f4 * f4; f12 = f8 * f4</c> are skipped in runs and pairs alike.
 /// The suggested name must exist in scope, which suppresses the classic false positive <c>halfWidth -= borderWidth; halfHeight -= borderWidth;</c> when there is no borderHeight.
 /// Runs are scanned in statement blocks (expression statements and declarations), object initializers, &amp;&amp;/|| chains and argument lists.
 /// </remarks>
@@ -483,7 +486,6 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    // With two rows a changed column can never repeat the other row, so the copy is a column that stays the same while the key is renamed.
     // The second row is the one reported, because a copy is usually made from the line above and then edited.
     private static void AnalyzePair(OperationAnalysisContext context, List<Row> rows, List<Slot> slots, int first)
     {
@@ -564,7 +566,9 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    // When the line already renames an enclosing access or call, its inner names are shared on purpose, as 'head' in head.Inner.Head and head.Inner.Tail, or GetLower() in ZipLower(left.GetLower()) and ZipUpper(left.GetLower()).
+    // When a column other than the key renames an enclosing access or call, the names inside it are shared on purpose.
+    // An example is 'head' in 'headHead = Read(ref head.Inner.Head); headTail = Read(ref head.Inner.Tail);'.
+    // Another is GetLower() in the arguments of 'Create(ZipLower(left.GetLower()), ZipUpper(left.GetLower()))'.
     private static bool IsInsideRenamedColumn(List<Slot> slots, int a, int b, int columns, int key, IOperation copy)
     {
         for (var c = 0; c < columns; c++)
@@ -683,7 +687,9 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     }
 
     // Splits two names into their shared affixes and the differing whole words, such as 'min' and 'max' in minX and maxX.
-    // The affixes are cut back to word boundaries, so Width and MinWidth give an empty fragment and never pair; neither fragment may contain the other, so name and displayName do not pair either.
+    // The affixes are cut back to word boundaries, which keeps the shared 'm' of minX and maxX out of the prefix.
+    // A fragment must hold a letter or digit, so Width and MinWidth, where Width is all shared suffix, never pair.
+    // Neither fragment may contain the other, so name and displayName do not pair either.
     private static bool TryRename(string x, string y, out ReadOnlySpan<char> from, out ReadOnlySpan<char> to)
     {
         var prefix = CommonPrefix(x, y);
