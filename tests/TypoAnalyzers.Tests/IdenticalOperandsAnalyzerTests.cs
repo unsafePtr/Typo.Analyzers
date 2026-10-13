@@ -360,6 +360,38 @@ public sealed class IdenticalOperandsAnalyzerTests
         """,
         Repeat("protocol.Equals(\"ftp\", StringComparison.OrdinalIgnoreCase)", "protocol.Equals(\"ftp\", StringComparison.OrdinalIgnoreCase)", "||"));
 
+    // C# 14 binds the array's Contains to MemoryExtensions even with System.Linq imported.
+    [Fact]
+    public Task ArrayContainsRepeated() => Verify.VerifyAsync(
+        """
+        using System.Linq;
+
+        public static class C
+        {
+            public static bool Known(int[] ids, int id) => {|#1:ids.Contains(id)|} || {|#0:ids.Contains(id)|};
+        }
+        """,
+        Repeat("ids.Contains(id)", "ids.Contains(id)", "||"));
+
+    [Fact]
+    public Task SpanSearchRepeated() => Verify.VerifyAsync(
+        """
+        using System;
+        using System.Buffers;
+
+        public static class C
+        {
+            private static readonly SearchValues<char> s_separators = SearchValues.Create(",;");
+
+            public static bool HasSeparator(string text) =>
+                {|#1:text.AsSpan().ContainsAny(s_separators)|} || {|#0:text.AsSpan().ContainsAny(s_separators)|};
+
+            public static bool IsSeparator(char c) => {|#3:s_separators.Contains(c)|} || {|#2:s_separators.Contains(c)|};
+        }
+        """,
+        Repeat("text.AsSpan().ContainsAny(s_separators)", "text.AsSpan().ContainsAny(s_separators)", "||"),
+        Repeat("s_separators.Contains(c)", "s_separators.Contains(c)", "||", duplicateMarker: 2, originalMarker: 3));
+
     [Fact]
     public Task QuakeStyleIndexDuplicate() => Verify.VerifyAsync(
         """

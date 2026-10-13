@@ -41,6 +41,7 @@ public sealed class CoreTests
         {
             public static void Ref(ref int value) => value++;
             public static void Out(out int value) => value = 0;
+            public static readonly System.Buffers.SearchValues<char> Vowels = System.Buffers.SearchValues.Create("aeiou");
         }
 
         """;
@@ -148,6 +149,10 @@ public sealed class CoreTests
         { "Math.Max(i, j)", true },
         { "HashCode.Combine(i, j)", true },
         { "list.Contains(i)", true },
+        { "arr.Contains(i)", true },
+        { "s.AsSpan().IndexOfAny('a', 'b')", true },
+        { "s.AsSpan().ContainsAny(Helpers.Vowels)", true },
+        { "Helpers.Vowels.Contains('a')", true },
         { "list.Count", true },
         { "a.Equals(b)", true },
         { "i.CompareTo(j)", true },
@@ -168,6 +173,7 @@ public sealed class CoreTests
         { "new Box()", false },
         { "list.Remove(i)", false },
         { "int.TryParse(s, out var parsed)", false },
+        { "s.AsSpan().ToUpperInvariant(chars)", false },
         { "Guid.NewGuid()", false },
         { "DateTime.Now", false },
         { "sw.ElapsedMilliseconds", false },
@@ -343,7 +349,7 @@ public sealed class CoreTests
             public static class C
             {
                 public static void Test(
-                    Box a, Box b, int i, int j, int? n, double d, double? dn, string s, object o, int[] arr, List<int> list, Stopwatch sw, Money m, DayOfWeek day, DateTime dt)
+                    Box a, Box b, int i, int j, int? n, double d, double? dn, string s, object o, int[] arr, char[] chars, List<int> list, Stopwatch sw, Money m, DayOfWeek day, DateTime dt)
                 {
                     var first = {{first}};
                     var second = {{second}};

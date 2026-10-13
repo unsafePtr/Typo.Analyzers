@@ -9,7 +9,7 @@ namespace TypoAnalyzers.Core;
 /// </summary>
 /// <remarks>
 /// Property getters and operators are assumed pure by convention, as other static analyzers also assume.
-/// Methods count as pure only through the annotation table below or the Equals/CompareTo/GetHashCode convention.
+/// Methods count as pure only through the annotation table below, the read-only MemoryExtensions overloads, or the Equals/CompareTo/GetHashCode convention.
 /// Create one instance per compilation; symbol lookups happen once in the constructor.
 /// </remarks>
 internal sealed class PurityOracle
@@ -49,9 +49,13 @@ internal sealed class PurityOracle
         "System.Collections.Immutable.ImmutableArray`1",
         "System.Collections.Immutable.ImmutableHashSet`1",
         "System.Collections.Immutable.ImmutableDictionary`2",
+        "System.Buffers.SearchValues`1",
     ];
 
     private readonly INamedTypeSymbol? _stream;
+    private readonly INamedTypeSymbol? _memoryExtensions;
+    private readonly INamedTypeSymbol? _span;
+    private readonly INamedTypeSymbol? _memory;
     private readonly HashSet<INamedTypeSymbol> _pureTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _pureStaticTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _lookupTypes = new(SymbolEqualityComparer.Default);
@@ -59,6 +63,9 @@ internal sealed class PurityOracle
     public PurityOracle(Compilation compilation)
     {
         _stream = compilation.GetTypeByMetadataName("System.IO.Stream");
+        _memoryExtensions = compilation.GetTypeByMetadataName("System.MemoryExtensions");
+        _span = compilation.GetTypeByMetadataName("System.Span`1");
+        _memory = compilation.GetTypeByMetadataName("System.Memory`1");
         AddTypes(compilation, s_pureTypeNames, _pureTypes);
         AddTypes(compilation, s_pureStaticTypeNames, _pureStaticTypes);
         AddTypes(compilation, s_lookupTypeNames, _lookupTypes);
@@ -157,6 +164,11 @@ internal sealed class PurityOracle
             return method.Name is "Contains" or "ContainsKey" or "ContainsValue" or "Any" or "Count" or "IndexOf";
         }
 
+        if (SymbolEqualityComparer.Default.Equals(type, _memoryExtensions))
+        {
+            return !CanWriteThroughParameter(method);
+        }
+
         return IsEqualityConvention(method);
     }
 
@@ -203,6 +215,25 @@ internal sealed class PurityOracle
         }
 
         return true;
+    }
+
+    // Every MemoryExtensions method that writes takes a Span<T>, a Memory<T>, or a ref or out parameter, so the rest only read.
+    // C# 14 binds array.Contains to MemoryExtensions instead of Enumerable, so this rule keeps repeated array lookups visible.
+    // Read-only overloads on a Span<T> receiver are lost with the writers, which costs recall but never calls a writer pure.
+    private bool CanWriteThroughParameter(IMethodSymbol method)
+    {
+        foreach (var parameter in method.Parameters)
+        {
+            var type = parameter.Type.OriginalDefinition;
+            if (parameter.RefKind is RefKind.Ref or RefKind.Out
+                || SymbolEqualityComparer.Default.Equals(type, _span)
+                || SymbolEqualityComparer.Default.Equals(type, _memory))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Getters are assumed pure, except clocks: two reads of DateTime.Now are not the same value.

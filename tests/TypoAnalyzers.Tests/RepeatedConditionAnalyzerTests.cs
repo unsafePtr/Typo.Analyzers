@@ -625,6 +625,7 @@ public sealed class RepeatedConditionAnalyzerTests
     [Fact]
     public Task NoDiagnostics_WhenConditionCanChange() => Verify.VerifyAsync(
         """
+        using System;
         using System.Collections.Generic;
 
         public static class C
@@ -654,6 +655,19 @@ public sealed class RepeatedConditionAnalyzerTests
                 if (queue.Count > 0)
                 {
                     queue.Clear();
+                }
+            }
+
+            public static void Upper(string text, char[] buffer)
+            {
+                if (buffer[0] == 'a')
+                {
+                    text.AsSpan().ToUpperInvariant(buffer);
+                }
+
+                if (buffer[0] == 'a')
+                {
+                    buffer[0] = 'b';
                 }
             }
 
