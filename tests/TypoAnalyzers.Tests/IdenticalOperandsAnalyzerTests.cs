@@ -184,6 +184,7 @@ public sealed class IdenticalOperandsAnalyzerTests
     public Task EnumeratorMoveNextBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
         """
         using System.Collections.Generic;
+        using System.Text;
 
         public static class C
         {
@@ -193,6 +194,18 @@ public sealed class IdenticalOperandsAnalyzerTests
             {
                 var e = text.GetEnumerator();
                 return e.MoveNext() && e.Current == 'a' && e.MoveNext() && e.Current == 'a';
+            }
+
+            public static bool Struct(List<int> items)
+            {
+                var e = items.GetEnumerator();
+                return e.MoveNext() && e.Current == 0 && e.MoveNext() && e.Current == 0;
+            }
+
+            public static bool Chunks(StringBuilder builder)
+            {
+                var e = builder.GetChunks();
+                return e.MoveNext() && e.Current.Length == 0 && e.MoveNext() && e.Current.Length == 0;
             }
         }
         """);
