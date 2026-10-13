@@ -67,17 +67,19 @@ internal readonly struct ReadSet
     public bool Contains(ISymbol? symbol) => symbol is not null && _symbols.Contains(symbol);
 
     /// <summary>
-    /// Answers whether the region writes something the expression reads, which unlike <see cref="MayBeChangedBy"/> needs evidence rather than an unknown call.
+    /// Answers whether the region provably writes something the expression reads.
+    /// Unlike <see cref="MayBeChangedBy"/>, it does not count a call merely because the method is not known to be pure.
     /// </summary>
     /// <remarks>
-    /// A call is evidence only on a struct: a method without the readonly modifier may change the struct it runs on, as <c>Utf8JsonReader.Read</c> moves the reader.
-    /// A readonly variable such as an <c>in</c> parameter is copied before such a call, so the call leaves the variable unchanged.
+    /// On a struct, a method without the readonly modifier is proof, as <c>Utf8JsonReader.Read</c> moves the reader.
+    /// A readonly variable such as an <c>in</c> parameter is copied before such a call, which leaves the variable unchanged.
+    /// On a class or interface, only a method listed by <see cref="PurityOracle.AdvancesInstance"/> is proof.
     /// </remarks>
     public bool IsWrittenBy(IOperation region, PurityOracle purity)
     {
         foreach (var operation in region.DescendantsAndSelf())
         {
-            if (Writes(operation) || MutatesReadStruct(operation, purity))
+            if (Writes(operation) || MutatesReadInstance(operation, purity))
             {
                 return true;
             }
@@ -160,10 +162,11 @@ internal readonly struct ReadSet
         }
     }
 
-    private bool MutatesReadStruct(IOperation operation, PurityOracle purity) =>
-        operation is IInvocationOperation { TargetMethod: { IsStatic: false, IsReadOnly: false } method, Instance: { Type.IsValueType: true } instance }
-        && !purity.IsPure(method)
-        && !IsReadOnlyVariable(instance)
+    private bool MutatesReadInstance(IOperation operation, PurityOracle purity) =>
+        operation is IInvocationOperation { TargetMethod: { IsStatic: false } method, Instance: { Type: { } type } instance }
+        && (type.IsValueType
+            ? !method.IsReadOnly && !purity.IsPure(method) && !IsReadOnlyVariable(instance)
+            : purity.AdvancesInstance(method))
         && (instance is IInstanceReferenceOperation ? _readsThis : Contains(RootSymbol(instance)));
 
     private static bool IsReadOnlyVariable(IOperation instance) => instance switch

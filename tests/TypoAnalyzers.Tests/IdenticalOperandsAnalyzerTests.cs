@@ -181,6 +181,58 @@ public sealed class IdenticalOperandsAnalyzerTests
         Repeat("cursor.Position == 0", "cursor.Position == 0", "&&"));
 
     [Fact]
+    public Task EnumeratorMoveNextBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        using System.Collections.Generic;
+
+        public static class C
+        {
+            public static bool Interface(IEnumerator<int> e) => e.MoveNext() && e.Current == 0 && e.MoveNext() && e.Current == 0;
+
+            public static bool Class(string text)
+            {
+                var e = text.GetEnumerator();
+                return e.MoveNext() && e.Current == 'a' && e.MoveNext() && e.Current == 'a';
+            }
+        }
+        """);
+
+    [Fact]
+    public Task StreamCallBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        using System.IO;
+
+        public static class C
+        {
+            public static bool Base(Stream s) => s.Position < 8 && s.ReadByte() == 0 && s.Position < 8;
+
+            public static bool Override(MemoryStream s) => s.Position < 8 && s.ReadByte() == 0 && s.Position < 8;
+        }
+        """);
+
+    [Fact]
+    public Task UnknownClassCallDoesNotHideRepeatedRead() => Verify.VerifyAsync(
+        """
+        using System.IO;
+
+        public sealed class Packet
+        {
+            public int Size { get; set; }
+
+            public int Align() => Size % 8;
+        }
+
+        public static class C
+        {
+            public static bool Unknown(Packet p) => {|#1:p.Size == 4|} && p.Align() > 4 && {|#0:p.Size == 4|};
+
+            public static bool NotStreamMember(MemoryStream s) => {|#3:s.Length > 0|} && s.ToArray()[0] == 1 && {|#2:s.Length > 0|};
+        }
+        """,
+        Repeat("p.Size == 4", "p.Size == 4", "&&"),
+        Repeat("s.Length > 0", "s.Length > 0", "&&", duplicateMarker: 2, originalMarker: 3));
+
+    [Fact]
     public Task SqlSugar_DuplicateTypeTestOnProperty() => Verify.VerifyAsync(
         """
         public sealed class Column { public object Value { get; set; } }

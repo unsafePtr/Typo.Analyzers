@@ -52,6 +52,7 @@ internal sealed class PurityOracle
     ];
 
     private readonly INamedTypeSymbol? _pureAttribute;
+    private readonly INamedTypeSymbol? _stream;
     private readonly HashSet<INamedTypeSymbol> _pureTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _pureStaticTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _lookupTypes = new(SymbolEqualityComparer.Default);
@@ -59,6 +60,7 @@ internal sealed class PurityOracle
     public PurityOracle(Compilation compilation)
     {
         _pureAttribute = compilation.GetTypeByMetadataName("System.Diagnostics.Contracts.PureAttribute");
+        _stream = compilation.GetTypeByMetadataName("System.IO.Stream");
         AddTypes(compilation, s_pureTypeNames, _pureTypes);
         AddTypes(compilation, s_pureStaticTypeNames, _pureStaticTypes);
         AddTypes(compilation, s_lookupTypeNames, _lookupTypes);
@@ -165,6 +167,25 @@ internal sealed class PurityOracle
         return _pureAttribute is not null && HasAttribute(method, _pureAttribute);
     }
 
+    // MoveNext advances an enumerator, and every Stream method moves, resizes or closes the stream.
+    public bool AdvancesInstance(IMethodSymbol method)
+    {
+        if (method.Name == "MoveNext")
+        {
+            return IsEnumerator(method.ContainingType);
+        }
+
+        for (var declared = method; declared is not null; declared = declared.OverriddenMethod)
+        {
+            if (SymbolEqualityComparer.Default.Equals(declared.ContainingType, _stream))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     private bool ArgumentsFree(ImmutableArray<IArgumentOperation> arguments, int depth)
     {
         foreach (var argument in arguments)
@@ -206,6 +227,24 @@ internal sealed class PurityOracle
         "CompareTo" or "GetHashCode" => method.ReturnType.SpecialType == SpecialType.System_Int32,
         _ => false,
     };
+
+    private static bool IsEnumerator(INamedTypeSymbol type)
+    {
+        if (type.SpecialType == SpecialType.System_Collections_IEnumerator)
+        {
+            return true;
+        }
+
+        foreach (var implemented in type.AllInterfaces)
+        {
+            if (implemented.SpecialType == SpecialType.System_Collections_IEnumerator)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool HasAttribute(IMethodSymbol method, INamedTypeSymbol attribute)
     {
