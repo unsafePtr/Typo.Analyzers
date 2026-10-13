@@ -90,6 +90,29 @@ public sealed class RepeatedConditionAnalyzerTests
         Expect(Descriptors.RepeatedAdjacentCondition, "descriptor.Kind0 == 1"));
 
     [Fact]
+    public Task AdjacentIfsWithSpanWriteToUnrelatedBuffer() => Verify.VerifyAsync(
+        """
+        public sealed class Counter
+        {
+            private int _count;
+
+            public void Write(char[] buffer)
+            {
+                if ({|#1:_count > 0|})
+                {
+                    _count.TryFormat(buffer, out _);
+                }
+
+                if ({|#0:_count > 0|})
+                {
+                    buffer[0] = ' ';
+                }
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedAdjacentCondition, "_count > 0"));
+
+    [Fact]
     public Task RepoDb_SecondCheckGuardsWrongCollection() => Verify.VerifyAsync(
         """
         using System;
@@ -389,6 +412,166 @@ public sealed class RepeatedConditionAnalyzerTests
         Expect(Descriptors.RepeatedNestedCondition, "o is not string", "true"));
 
     [Fact]
+    public Task ElseIfOppositeOfEarlierConditionIsAlwaysTrue() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(string s)
+            {
+                if ({|#1:s == null|})
+                {
+                    return 0;
+                }
+                else if ({|#0:s != null|})
+                {
+                    return 1;
+                }
+
+                return 2;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "s != null", "true"));
+
+    [Fact]
+    public Task ElseIfRelationalComplementIsAlwaysTrue() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(int x, int limit)
+            {
+                if ({|#1:x < limit|})
+                {
+                    return 0;
+                }
+                else if ({|#0:x >= limit|})
+                {
+                    return 1;
+                }
+
+                return 2;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "x >= limit", "true"));
+
+    [Fact]
+    public Task ElseIfDisjunctRepeatsEarlierConditionIsAlwaysFalse() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(bool a, bool b)
+            {
+                if ({|#1:a|})
+                {
+                    return 0;
+                }
+                else if ({|#0:a|} || b)
+                {
+                    return 1;
+                }
+
+                return 2;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "a", "false"));
+
+    [Fact]
+    public Task NestedFloatingPointComplementIsAlwaysFalse() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(double x, double y)
+            {
+                if ({|#1:x < y|})
+                {
+                    if ({|#0:x >= y|})
+                    {
+                        return 1;
+                    }
+                }
+
+                return 0;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "x >= y", "false"));
+
+    [Fact]
+    public Task NestedLiftedComplementIsAlwaysFalse() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(int? a, int? b)
+            {
+                if ({|#1:a < b|})
+                {
+                    if ({|#0:a >= b|})
+                    {
+                        return 1;
+                    }
+                }
+
+                return 0;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "a >= b", "false"));
+
+    [Fact]
+    public Task NoDiagnostics_WhenNaNOrNullMakesBothComplementsFalse() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int Lifted(int? a, int? b)
+            {
+                if (a < b)
+                {
+                    return 0;
+                }
+                else
+                {
+                    if (a >= b)
+                    {
+                        return 1;
+                    }
+                }
+
+                return 2;
+            }
+
+            public static int LiftedElseIf(int? a, int? b)
+            {
+                if (a < b)
+                {
+                    return 0;
+                }
+                else if (a >= b)
+                {
+                    return 1;
+                }
+
+                return 2;
+            }
+
+            public static int FloatingPointElseIf(double x, double y)
+            {
+                if (x < y)
+                {
+                    return 0;
+                }
+                else if (x >= y)
+                {
+                    return 1;
+                }
+
+                return 2;
+            }
+        }
+        """);
+
+    [Fact]
     public Task ElseIfRepeatsNullTestInAnotherSpelling() => Verify.VerifyAsync(
         """
         public static class C
@@ -668,6 +851,46 @@ public sealed class RepeatedConditionAnalyzerTests
                 if (buffer[0] == 'a')
                 {
                     buffer[0] = 'b';
+                }
+            }
+
+            public static void Copy(string text, char[] buffer)
+            {
+                if (buffer[0] == 'a')
+                {
+                    text.TryCopyTo(buffer);
+                }
+
+                if (buffer[0] == 'a')
+                {
+                    buffer[0] = 'b';
+                }
+            }
+
+            public static void Format(int value)
+            {
+                Span<char> digits = stackalloc char[16];
+                if (digits[0] == '\0')
+                {
+                    value.TryFormat(digits, out _);
+                }
+
+                if (digits[0] == '\0')
+                {
+                    digits[0] = '0';
+                }
+            }
+
+            public static void Bytes(byte[] bytes, long value)
+            {
+                if (bytes[0] == 0)
+                {
+                    BitConverter.TryWriteBytes(bytes.AsSpan(1), value);
+                }
+
+                if (bytes[0] == 0)
+                {
+                    bytes[0] = 1;
                 }
             }
 

@@ -9,7 +9,9 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0003 repeated condition in an if-else chain, TYPO0004 an 'if' repeating the condition of the preceding one or of an earlier one that always exits, TYPO0005 nested 'if' repeating an enclosing check.
+/// TYPO0003 is a condition repeated in an if-else chain.
+/// TYPO0004 is an 'if' repeating the condition of the preceding one, or of an earlier one that always exits.
+/// TYPO0005 is a nested 'if' or later else-if repeating, or negating, an enclosing check.
 /// </summary>
 /// <remarks>
 /// All three share the "equivalent condition, and nothing in between can change it" question, which is why they live in one analyzer.
@@ -115,8 +117,7 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
                     var knownTrue = ReferenceEquals(child, outer.WhenTrue);
                     onlyElseIfLinks &= !knownTrue && child is IConditionalOperation { Syntax: IfStatementSyntax };
 
-                    // Pure else-if chains are reported by TYPO0003.
-                    if (!onlyElseIfLinks && TryReportKnown(context, inner, outer, knownTrue, crossedLoop, crossedLock, purity))
+                    if (TryReportKnown(context, inner, outer, knownTrue, onlyElseIfLinks, crossedLoop, crossedLock, purity))
                     {
                         return;
                     }
@@ -130,7 +131,8 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    private static bool TryReportKnown(OperationAnalysisContext context, IConditionalOperation inner, IConditionalOperation outer, bool knownTrue, bool crossedLoop, bool crossedLock, PurityOracle purity)
+    // In a pure else-if chain, a whole condition repeating an earlier disjunct is left to TYPO0003, which reports exactly that.
+    private static bool TryReportKnown(OperationAnalysisContext context, IConditionalOperation inner, IConditionalOperation outer, bool knownTrue, bool inElseIfChain, bool crossedLoop, bool crossedLock, PurityOracle purity)
     {
         // Inside 'then' every conjunct of the outer condition is true; inside 'else' every disjunct is false.
         var kind = knownTrue ? BinaryOperatorKind.ConditionalAnd : BinaryOperatorKind.ConditionalOr;
@@ -144,13 +146,19 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
             {
                 foreach (var fact in known)
                 {
-                    // A repeated fact keeps the known value; its negation, as in 'if (s == null) { if (s != null) ... }', has the opposite one.
+                    // A repeated fact keeps the known value, and a true fact makes every test it excludes false.
+                    // A false fact makes only its exact negation true, since 'a < b' and 'a >= b' are both false on NaN or null.
                     bool value;
                     if (Negation.AreSame(fact, part))
                     {
+                        if (inElseIfChain && parts.Count == 1)
+                        {
+                            continue;
+                        }
+
                         value = knownTrue;
                     }
-                    else if (Negation.AreOpposite(fact, part))
+                    else if (knownTrue ? Negation.Excludes(fact, part) : Negation.AreOpposite(fact, part))
                     {
                         value = !knownTrue;
                     }

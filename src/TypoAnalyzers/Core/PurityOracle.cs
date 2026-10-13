@@ -10,7 +10,8 @@ namespace TypoAnalyzers.Core;
 /// </summary>
 /// <remarks>
 /// Property getters and operators are assumed pure by convention, as other static analyzers also assume.
-/// Methods count as pure only through the annotation table below, the read-only MemoryExtensions overloads, or the Equals/CompareTo/GetHashCode convention.
+/// Methods count as pure through the rules for object, enums, Nullable&lt;T&gt;, DateTime, primitives and string, or through the type tables below.
+/// The read-only MemoryExtensions overloads and the Equals/CompareTo/GetHashCode convention also count; nothing else does.
 /// Most analyzers consult the oracle, so <see cref="For"/> builds it once per compilation and they all share that instance.
 /// The analyzers sharing it run concurrently, so the oracle must stay read-only once the constructor returns.
 /// </remarks>
@@ -30,6 +31,7 @@ internal sealed class PurityOracle
     ];
 
     // Only the static members of these are pure; HashCode.Add, for example, mutates the instance.
+    // Path.GetRandomFileName and Path.GetTempFileName return a new name on every call, so IsPure excludes them by name.
     private static readonly string[] s_pureStaticTypeNames =
     [
         "System.HashCode",
@@ -166,13 +168,14 @@ internal sealed class PurityOracle
                 return true;
 
             case >= SpecialType.System_Boolean and <= SpecialType.System_String:
-                // Strings and primitives are immutable; CopyTo is the one instance method that writes somewhere else.
+                // Strings and primitives are immutable, but CopyTo writes an array.
+                // ReadSet tracks their writes through out parameters and Span<T> destinations, as in TryFormat.
                 return method.Name != "CopyTo";
         }
 
         if (_pureTypes.Contains(type) || (method.IsStatic && _pureStaticTypes.Contains(type)))
         {
-            return method.Name is not ("NewGuid" or "CreateVersion7");
+            return method.Name is not ("NewGuid" or "CreateVersion7" or "GetRandomFileName" or "GetTempFileName");
         }
 
         if (_lookupTypes.Contains(type))
@@ -206,6 +209,14 @@ internal sealed class PurityOracle
 
         return false;
     }
+
+    // The callee can write the memory a Span<T> or Memory<T> argument views, unless it is a MemoryExtensions reader searching it.
+    public bool WritesThrough(IArgumentOperation argument) =>
+        argument.Parameter is { RefKind: RefKind.None } parameter
+        && IsWritable(parameter)
+        && !(argument.Parent is IInvocationOperation { TargetMethod: var method }
+            && SymbolEqualityComparer.Default.Equals(method.ContainingType, _memoryExtensions)
+            && IsSearchedSpan(parameter, method));
 
     private bool ArgumentsFree(ImmutableArray<IArgumentOperation> arguments, int depth)
     {

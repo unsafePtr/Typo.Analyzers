@@ -4,10 +4,11 @@ using Microsoft.CodeAnalysis.Operations;
 namespace TypoAnalyzers.Core;
 
 /// <summary>
-/// Relates two conditions beyond plain equivalence: the same test spelled differently, or one test being the exact negation of the other.
+/// Relates two conditions beyond plain equivalence: the same test spelled differently, an exact negation, or two exclusive tests.
 /// </summary>
 /// <remarks>
-/// Relational complements such as <c>a &lt; b</c> and <c>a &gt;= b</c> are only opposite for non-floating-point operands, because both are false when either side is NaN.
+/// Relational complements such as <c>a &lt; b</c> and <c>a &gt;= b</c> never both hold, but both are false when either side is NaN or null.
+/// So <see cref="Excludes"/> accepts them on any operands, and <see cref="AreOpposite"/> only when neither side is floating-point or nullable.
 /// </remarks>
 internal static class Negation
 {
@@ -29,7 +30,17 @@ internal static class Negation
             ? unchecked((OperationEquivalence.GetHashCode(value) * 31) + (isNull ? 1 : 2))
             : OperationEquivalence.GetHashCode(condition);
 
-    public static bool AreOpposite(IOperation x, IOperation y)
+    /// <summary>
+    /// True when exactly one of the two conditions holds.
+    /// </summary>
+    public static bool AreOpposite(IOperation x, IOperation y) => AreComplements(x, y, exhaustive: true);
+
+    /// <summary>
+    /// True when the two conditions never both hold, though both may be false.
+    /// </summary>
+    public static bool Excludes(IOperation x, IOperation y) => AreComplements(x, y, exhaustive: false);
+
+    private static bool AreComplements(IOperation x, IOperation y, bool exhaustive)
     {
         x = Skip(x);
         y = Skip(y);
@@ -52,7 +63,7 @@ internal static class Negation
         {
             case IBinaryOperation { OperatorMethod: null } left when y is IBinaryOperation { OperatorMethod: null } right:
                 return Complement(left.OperatorKind) == right.OperatorKind
-                    && (left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals || !IsFloatingPoint(left.LeftOperand.Type))
+                    && (!exhaustive || left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals || (!left.IsLifted && !IsFloatingPoint(left.LeftOperand.Type)))
                     && ((OperationEquivalence.AreEquivalent(left.LeftOperand, right.LeftOperand) && OperationEquivalence.AreEquivalent(left.RightOperand, right.RightOperand))
                         || (left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
                             && OperationEquivalence.AreEquivalent(left.LeftOperand, right.RightOperand)
@@ -120,11 +131,7 @@ internal static class Negation
         _ => BinaryOperatorKind.None,
     };
 
-    private static bool IsFloatingPoint(ITypeSymbol? type) => type switch
-    {
-        INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable => IsFloatingPoint(nullable.TypeArguments[0]),
-        _ => type?.SpecialType is SpecialType.System_Single or SpecialType.System_Double,
-    };
+    private static bool IsFloatingPoint(ITypeSymbol? type) => type?.SpecialType is SpecialType.System_Single or SpecialType.System_Double;
 
     private static IOperation Skip(IOperation operation)
     {

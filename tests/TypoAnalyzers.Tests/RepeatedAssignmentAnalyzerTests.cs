@@ -117,19 +117,38 @@ public sealed class RepeatedAssignmentAnalyzerTests
         Overwritten("Total"));
 
     [Fact]
-    public Task NoDiagnostics_ForSettersFromOtherAssembliesOrGetOnlyProperties() => Verify.VerifyAsync(
+    public Task GetOnlyPropertyAssignedTwiceInConstructor() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            public C(int id)
+            {
+                {|#1:Id|} = id;
+                {|#0:Id|} = id + 1;
+            }
+
+            public int Id { get; }
+        }
+        """,
+        Overwritten("Id"));
+
+    [Fact]
+    public Task NoDiagnostics_ForSettersFromOtherAssembliesOrRefGetters() => Verify.VerifyAsync(
         """
         using System.Collections.Generic;
 
         public sealed class C
         {
-            public C()
-            {
-                Id = 1;
-                Id = 2;
-            }
+            private readonly int[] _slots = new int[4];
+            private int _next;
 
-            public int Id { get; }
+            public ref int Next => ref _slots[_next++];
+
+            public void Fill()
+            {
+                Next = 1;
+                Next = 2;
+            }
 
             public static void Grow(List<int> list)
             {

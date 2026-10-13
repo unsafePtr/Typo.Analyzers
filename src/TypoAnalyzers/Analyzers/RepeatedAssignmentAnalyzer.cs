@@ -12,7 +12,8 @@ namespace TypoAnalyzers.Analyzers;
 /// </summary>
 /// <remarks>
 /// Locals and parameters are left to IDE0059.
-/// Properties with hand-written setters and properties from referenced assemblies are skipped because their setters may have side effects that make a second write meaningful.
+/// A property is tracked when it is get-only or has an auto-implemented setter declared in source. An indexer is tracked only on the listed collections.
+/// Hand-written setters and setters from referenced assemblies may have side effects that make a second write meaningful.
 /// Only a run of plain assignment statements is scanned; any other statement ends it.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -105,9 +106,15 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         _ => false,
     };
 
+    // A constructor assigning a get-only property writes its backing field and runs no code, unless the getter returns a ref.
     private static bool IsAutoProperty(IPropertySymbol property)
     {
-        if (property.SetMethod is not { } setter || setter.DeclaringSyntaxReferences.IsEmpty)
+        if (property.SetMethod is not { } setter)
+        {
+            return !property.ReturnsByRef;
+        }
+
+        if (setter.DeclaringSyntaxReferences.IsEmpty)
         {
             return false;
         }

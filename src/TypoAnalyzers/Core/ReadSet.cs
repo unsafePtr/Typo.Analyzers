@@ -5,11 +5,17 @@ using Microsoft.CodeAnalysis.Text;
 namespace TypoAnalyzers.Core;
 
 /// <summary>
-/// Answers "can this code change what that expression reads?" conservatively, so callers only report when the answer is a confident no.
+/// Answers "can this code change what that expression reads?" for callers that skip a report when it can.
 /// </summary>
 /// <remarks>
+/// <see cref="MayBeChangedBy"/> answers conservatively, so its callers only report when the answer is a confident no.
+/// <see cref="IsWrittenBy"/> needs evidence of a write, so its callers still report across an unknown call.
 /// Writes are matched by symbol regardless of instance, so <c>other.X = 1</c> counts as changing <c>this.X</c>.
-/// A call to a method not known to be pure counts as a change when the expression reads fields, properties or array elements, or when a lambda or local function in the same method writes one of the locals it reads.
+/// Passing a <c>Span&lt;T&gt;</c> or <c>Memory&lt;T&gt;</c> argument writes the array or span it views, as in <c>value.TryFormat(buffer, out _)</c>.
+/// In <see cref="MayBeChangedBy"/>, a call to a method not known to be pure counts as a change when the expression reads state.
+/// State is a mutable field, a property, an array element or the result of a call.
+/// The same call also counts when a lambda or local function in the method writes a local or parameter the expression reads.
+/// An await counts as a change when the expression reads state, and a dynamic call always does.
 /// </remarks>
 internal readonly struct ReadSet
 {
@@ -67,19 +73,19 @@ internal readonly struct ReadSet
     public bool Contains(ISymbol? symbol) => symbol is not null && _symbols.Contains(symbol);
 
     /// <summary>
-    /// Answers whether the region provably writes something the expression reads.
+    /// Answers whether the region shows evidence of writing something the expression reads.
     /// Unlike <see cref="MayBeChangedBy"/>, it does not count a call merely because the method is not known to be pure.
     /// </summary>
     /// <remarks>
-    /// On a struct, a method without the readonly modifier is proof, as <c>Utf8JsonReader.Read</c> moves the reader.
+    /// On a struct, a method that is neither readonly nor known to be pure counts, as <c>Utf8JsonReader.Read</c> moves the reader.
     /// A readonly variable such as an <c>in</c> parameter is copied before such a call, which leaves the variable unchanged.
-    /// On a class or interface, only a method listed by <see cref="PurityOracle.AdvancesInstance"/> is proof.
+    /// On a class, an interface or a type parameter, only a method that <see cref="PurityOracle.AdvancesInstance"/> accepts counts.
     /// </remarks>
     public bool IsWrittenBy(IOperation region, PurityOracle purity)
     {
         foreach (var operation in region.DescendantsAndSelf())
         {
-            if (Writes(operation) || MutatesReadInstance(operation, purity))
+            if (Writes(operation, purity) || MutatesReadInstance(operation, purity))
             {
                 return true;
             }
@@ -98,7 +104,7 @@ internal readonly struct ReadSet
                 continue;
             }
 
-            if (Writes(operation))
+            if (Writes(operation, purity))
             {
                 return true;
             }
@@ -106,7 +112,7 @@ internal readonly struct ReadSet
             switch (operation)
             {
                 case IInvocationOperation invocation when !purity.IsPure(invocation.TargetMethod):
-                    if (ReadsState || (writtenByClosure ??= IsWrittenByClosure(region)))
+                    if (ReadsState || (writtenByClosure ??= IsWrittenByClosure(region, purity)))
                     {
                         return true;
                     }
@@ -133,7 +139,7 @@ internal readonly struct ReadSet
         _ => null,
     };
 
-    private bool Writes(IOperation operation)
+    private bool Writes(IOperation operation, PurityOracle purity)
     {
         switch (operation)
         {
@@ -157,10 +163,22 @@ internal readonly struct ReadSet
             case IArgumentOperation { Parameter.RefKind: RefKind.Ref or RefKind.Out } argument:
                 return Contains(RootSymbol(argument.Value));
 
+            case IArgumentOperation argument when purity.WritesThrough(argument):
+                return Contains(ViewedSymbol(argument.Value));
+
             default:
                 return false;
         }
     }
+
+    // A span made with AsSpan, AsMemory or Slice views the same memory as its source.
+    private static ISymbol? ViewedSymbol(IOperation operation) => operation switch
+    {
+        IConversionOperation conversion => ViewedSymbol(conversion.Operand),
+        IInvocationOperation { TargetMethod: { IsStatic: true, Name: "AsSpan" or "AsMemory" }, Arguments: [var source, ..] } => ViewedSymbol(source.Value),
+        IInvocationOperation { TargetMethod.Name: "Slice", Instance: { } instance } => ViewedSymbol(instance),
+        _ => RootSymbol(operation),
+    };
 
     private bool MutatesReadInstance(IOperation operation, PurityOracle purity) =>
         operation is IInvocationOperation { TargetMethod: { IsStatic: false } method, Instance: { Type: { } type } instance }
@@ -177,7 +195,7 @@ internal readonly struct ReadSet
         _ => false,
     };
 
-    private bool IsWrittenByClosure(IOperation anywhereInMethod)
+    private bool IsWrittenByClosure(IOperation anywhereInMethod, PurityOracle purity)
     {
         var root = anywhereInMethod;
         while (root.Parent is not null)
@@ -194,7 +212,7 @@ internal readonly struct ReadSet
 
             foreach (var inner in operation.Descendants())
             {
-                if (Writes(inner))
+                if (Writes(inner, purity))
                 {
                     return true;
                 }

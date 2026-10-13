@@ -125,6 +125,18 @@ public sealed class IdenticalOperandsAnalyzerTests
         """);
 
     [Fact]
+    public Task SpanWriteBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public static class C
+        {
+            public static bool Fresh(byte[] bytes, long value) =>
+                bytes[0] == 0 && BitConverter.TryWriteBytes(bytes.AsSpan(), value) && bytes[0] == 0;
+        }
+        """);
+
+    [Fact]
     public Task WriteBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
         """
         public struct Cursor
@@ -533,6 +545,8 @@ public sealed class IdenticalOperandsAnalyzerTests
             public static TimeSpan Clock() => DateTime.Now - DateTime.Now;
 
             public static bool Ticks() => Environment.TickCount > 0 || Environment.TickCount > 0;
+
+            public static bool FileNames() => System.IO.Path.GetRandomFileName() != System.IO.Path.GetRandomFileName();
         }
         """);
 
