@@ -59,6 +59,7 @@ internal sealed class PurityOracle
     private readonly HashSet<INamedTypeSymbol> _pureTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _pureStaticTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _lookupTypes = new(SymbolEqualityComparer.Default);
+    private readonly HashSet<string> _memoryExtensionReaders = new(StringComparer.Ordinal);
 
     public PurityOracle(Compilation compilation)
     {
@@ -66,6 +67,14 @@ internal sealed class PurityOracle
         _memoryExtensions = compilation.GetTypeByMetadataName("System.MemoryExtensions");
         _span = compilation.GetTypeByMetadataName("System.Span`1");
         _memory = compilation.GetTypeByMetadataName("System.Memory`1");
+        foreach (var member in _memoryExtensions?.GetMembers() ?? [])
+        {
+            if (member is IMethodSymbol method && !HasWritableParameter(method))
+            {
+                _memoryExtensionReaders.Add(method.Name);
+            }
+        }
+
         AddTypes(compilation, s_pureTypeNames, _pureTypes);
         AddTypes(compilation, s_pureStaticTypeNames, _pureStaticTypes);
         AddTypes(compilation, s_lookupTypeNames, _lookupTypes);
@@ -166,7 +175,7 @@ internal sealed class PurityOracle
 
         if (SymbolEqualityComparer.Default.Equals(type, _memoryExtensions))
         {
-            return !CanWriteThroughParameter(method);
+            return OnlyReads(method);
         }
 
         return IsEqualityConvention(method);
@@ -217,17 +226,29 @@ internal sealed class PurityOracle
         return true;
     }
 
-    // Every MemoryExtensions method that writes takes a Span<T>, a Memory<T>, or a ref or out parameter, so the rest only read.
+    // Every MemoryExtensions method that writes takes a Span<T>, a Memory<T>, or a ref or out parameter.
+    // A Span<T> receiver is still only read when the name also has an overload without one, as IndexOf and Trim do.
+    // Through .NET 11 the in-place writers Sort, Reverse, Replace, ReplaceAny and ReplaceAnyExcept have no such overload.
+    // .NET 10 lowers the priority of those Span<T> readers, so mainly older references and Trim, which returns a Span<T>, bind to them.
     // C# 14 binds array.Contains to MemoryExtensions instead of Enumerable, so this rule keeps repeated array lookups visible.
-    // Read-only overloads on a Span<T> receiver are lost with the writers, which costs recall but never calls a writer pure.
-    private bool CanWriteThroughParameter(IMethodSymbol method)
+    private bool OnlyReads(IMethodSymbol method)
     {
         foreach (var parameter in method.Parameters)
         {
-            var type = parameter.Type.OriginalDefinition;
-            if (parameter.RefKind is RefKind.Ref or RefKind.Out
-                || SymbolEqualityComparer.Default.Equals(type, _span)
-                || SymbolEqualityComparer.Default.Equals(type, _memory))
+            if (IsWritable(parameter) && !IsSearchedSpan(parameter, method))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private bool HasWritableParameter(IMethodSymbol method)
+    {
+        foreach (var parameter in method.Parameters)
+        {
+            if (IsWritable(parameter))
             {
                 return true;
             }
@@ -235,6 +256,20 @@ internal sealed class PurityOracle
 
         return false;
     }
+
+    private bool IsWritable(IParameterSymbol parameter)
+    {
+        var type = parameter.Type.OriginalDefinition;
+        return parameter.RefKind is RefKind.Ref or RefKind.Out
+            || SymbolEqualityComparer.Default.Equals(type, _span)
+            || SymbolEqualityComparer.Default.Equals(type, _memory);
+    }
+
+    private bool IsSearchedSpan(IParameterSymbol parameter, IMethodSymbol method) =>
+        parameter.Ordinal == 0
+        && parameter.RefKind == RefKind.None
+        && SymbolEqualityComparer.Default.Equals(parameter.Type.OriginalDefinition, _span)
+        && _memoryExtensionReaders.Contains(method.Name);
 
     // Getters are assumed pure, except clocks: two reads of DateTime.Now are not the same value.
     private static bool IsClockProperty(IPropertySymbol property) => property.ContainingType.Name switch

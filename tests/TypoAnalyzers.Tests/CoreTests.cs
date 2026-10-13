@@ -153,6 +153,7 @@ public sealed class CoreTests
         { "s.AsSpan().IndexOfAny('a', 'b')", true },
         { "s.AsSpan().ContainsAny(Helpers.Vowels)", true },
         { "Helpers.Vowels.Contains('a')", true },
+        { "buf.Trim()", true },
         { "list.Count", true },
         { "a.Equals(b)", true },
         { "i.CompareTo(j)", true },
@@ -211,6 +212,8 @@ public sealed class CoreTests
         { "", "arr[0] > 0", "arr[1] = 2;", true },
         { "", "((int[])o)[0] > 0", "((int[])o)[0] = 1;", true },
         { "", "a.R > 0", "a.M();", false },
+        { "Span<char> buf = new char[4];", "a.X > 0", "buf.Trim();", false },
+        { "Span<char> buf = new char[4];", "a.X > 0", "buf.Reverse();", true },
         { "", "a.X > 0", "await Task.Yield();", true },
         { "", "i > 0", "await Task.Yield();", false },
         { "", "i > 0", "dyn.Foo();", true },
@@ -349,7 +352,7 @@ public sealed class CoreTests
             public static class C
             {
                 public static void Test(
-                    Box a, Box b, int i, int j, int? n, double d, double? dn, string s, object o, int[] arr, char[] chars, List<int> list, Stopwatch sw, Money m, DayOfWeek day, DateTime dt)
+                    Box a, Box b, int i, int j, int? n, double d, double? dn, string s, object o, int[] arr, char[] chars, Span<char> buf, List<int> list, Stopwatch sw, Money m, DayOfWeek day, DateTime dt)
                 {
                     var first = {{first}};
                     var second = {{second}};

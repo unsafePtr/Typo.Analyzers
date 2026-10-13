@@ -392,6 +392,23 @@ public sealed class IdenticalOperandsAnalyzerTests
         Repeat("text.AsSpan().ContainsAny(s_separators)", "text.AsSpan().ContainsAny(s_separators)", "||"),
         Repeat("s_separators.Contains(c)", "s_separators.Contains(c)", "||", duplicateMarker: 2, originalMarker: 3));
 
+    // A search on a Span<T> binds to the Span<T> overload only before .NET 10; see PurityOracle.OnlyReads.
+    [Fact]
+    public Task SpanBufferSearchRepeatedOnNet8() => Verify.VerifyWithReferencesAsync(
+        ReferenceAssemblies.Net.Net80,
+        """
+        using System;
+
+        public static class C
+        {
+            public static bool HasDot(Span<char> buffer) => {|#1:buffer.Contains('.')|} || {|#0:buffer.Contains('.')|};
+
+            public static bool Padded(Span<char> buffer) => {|#3:buffer.Trim().Length > 0|} || {|#2:buffer.Trim().Length > 0|};
+        }
+        """,
+        Repeat("buffer.Contains('.')", "buffer.Contains('.')", "||"),
+        Repeat("buffer.Trim().Length > 0", "buffer.Trim().Length > 0", "||", duplicateMarker: 2, originalMarker: 3));
+
     [Fact]
     public Task QuakeStyleIndexDuplicate() => Verify.VerifyAsync(
         """
