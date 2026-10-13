@@ -23,7 +23,7 @@ public sealed class SelfArgumentAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.RegisterCompilationStartAction(static start =>
         {
-            var purity = new PurityOracle(start.Compilation);
+            var purity = PurityOracle.For(start.Compilation);
             start.RegisterOperationAction(context => Analyze(context, purity), OperationKind.Invocation);
         });
     }

@@ -136,7 +136,7 @@ public sealed class RobustnessTests
         var bodies = tree.GetRoot(TestContext.Current.CancellationToken).DescendantNodes().OfType<ArrowExpressionClauseSyntax>().ToArray();
         var operation = model.GetOperation(bodies[0].Expression, TestContext.Current.CancellationToken)!;
         var pattern = ((IIsPatternOperation)model.GetOperation(bodies[1].Expression, TestContext.Current.CancellationToken)!).Pattern;
-        var purity = new PurityOracle(compilation);
+        var purity = PurityOracle.For(compilation);
 
         // A small stack turns a missing depth guard into a crash here rather than in a user's compiler or IDE.
         bool? equivalent = null;

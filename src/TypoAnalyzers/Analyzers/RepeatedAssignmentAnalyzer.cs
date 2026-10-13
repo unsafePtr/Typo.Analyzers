@@ -35,7 +35,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.RegisterCompilationStartAction(static start =>
         {
-            var purity = new PurityOracle(start.Compilation);
+            var purity = PurityOracle.For(start.Compilation);
             var collections = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
             foreach (var name in s_collectionTypeNames)
             {

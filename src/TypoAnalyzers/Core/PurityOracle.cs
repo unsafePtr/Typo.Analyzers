@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Operations;
 
@@ -10,10 +11,14 @@ namespace TypoAnalyzers.Core;
 /// <remarks>
 /// Property getters and operators are assumed pure by convention, as other static analyzers also assume.
 /// Methods count as pure only through the annotation table below, the read-only MemoryExtensions overloads, or the Equals/CompareTo/GetHashCode convention.
-/// Create one instance per compilation; symbol lookups happen once in the constructor.
+/// Most analyzers consult the oracle, so <see cref="For"/> builds it once per compilation and they all share that instance.
+/// The analyzers sharing it run concurrently, so the oracle must stay read-only once the constructor returns.
 /// </remarks>
 internal sealed class PurityOracle
 {
+    // The table holds compilations weakly, so each oracle dies with its compilation, which the IDE replaces on every edit.
+    private static readonly ConditionalWeakTable<Compilation, PurityOracle> s_byCompilation = new();
+
     private static readonly string[] s_pureTypeNames =
     [
         "System.Math",
@@ -61,7 +66,7 @@ internal sealed class PurityOracle
     private readonly HashSet<INamedTypeSymbol> _lookupTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<string> _memoryExtensionReaders = new(StringComparer.Ordinal);
 
-    public PurityOracle(Compilation compilation)
+    private PurityOracle(Compilation compilation)
     {
         _stream = compilation.GetTypeByMetadataName("System.IO.Stream");
         _memoryExtensions = compilation.GetTypeByMetadataName("System.MemoryExtensions");
@@ -79,6 +84,8 @@ internal sealed class PurityOracle
         AddTypes(compilation, s_pureStaticTypeNames, _pureStaticTypes);
         AddTypes(compilation, s_lookupTypeNames, _lookupTypes);
     }
+
+    public static PurityOracle For(Compilation compilation) => s_byCompilation.GetValue(compilation, static c => new PurityOracle(c));
 
     public bool IsFree(IOperation? operation) => IsFree(operation, 0);
 

@@ -27,7 +27,7 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.RegisterCompilationStartAction(static start =>
         {
-            var purity = new PurityOracle(start.Compilation);
+            var purity = PurityOracle.For(start.Compilation);
             start.RegisterOperationAction(context => AnalyzeBinary(context, purity), OperationKind.Binary);
             start.RegisterOperationAction(AnalyzeBinaryPattern, OperationKind.BinaryPattern);
         });

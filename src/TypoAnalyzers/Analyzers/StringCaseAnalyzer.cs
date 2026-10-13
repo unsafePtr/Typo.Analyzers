@@ -33,7 +33,7 @@ public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.RegisterCompilationStartAction(static start =>
         {
-            var purity = new PurityOracle(start.Compilation);
+            var purity = PurityOracle.For(start.Compilation);
             start.RegisterOperationAction(context => AnalyzeBinary(context, purity), OperationKind.Binary);
             start.RegisterOperationAction(context => AnalyzeInvocation(context, purity), OperationKind.Invocation);
             start.RegisterOperationAction(context => AnalyzeIsPattern(context, purity), OperationKind.IsPattern);

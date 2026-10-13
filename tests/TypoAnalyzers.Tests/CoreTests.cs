@@ -267,7 +267,16 @@ public sealed class CoreTests
     {
         var (compilation, x, _) = await TwoExpressionsAsync(expression, "0");
 
-        Assert.Equal(expected, new PurityOracle(compilation).IsFree(x));
+        Assert.Equal(expected, PurityOracle.For(compilation).IsFree(x));
+    }
+
+    [Fact]
+    public async Task PurityOracleIsSharedPerCompilation()
+    {
+        var (compilation, _) = await CompileWithoutErrorsAsync(Prelude);
+
+        Assert.Same(PurityOracle.For(compilation), PurityOracle.For(compilation));
+        Assert.NotSame(PurityOracle.For(compilation), PurityOracle.For(compilation.Clone()));
     }
 
     [Theory]
@@ -318,7 +327,7 @@ public sealed class CoreTests
         var regionSyntax = method.Body!.Statements.OfType<BlockSyntax>().Last();
 
         var reads = ReadSet.Of(model.GetOperation(conditionSyntax, TestContext.Current.CancellationToken)!);
-        var changed = reads.MayBeChangedBy(model.GetOperation(regionSyntax, TestContext.Current.CancellationToken)!, new PurityOracle(compilation));
+        var changed = reads.MayBeChangedBy(model.GetOperation(regionSyntax, TestContext.Current.CancellationToken)!, PurityOracle.For(compilation));
 
         Assert.Equal(expected, changed);
     }
