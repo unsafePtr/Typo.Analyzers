@@ -11,7 +11,6 @@ public sealed class CoreTests
         using System;
         using System.Collections.Generic;
         using System.Diagnostics;
-        using System.Diagnostics.Contracts;
         using System.Threading.Tasks;
 
         public sealed class Box
@@ -25,8 +24,6 @@ public sealed class CoreTests
             public int this[int index] => index;
             public int M() => X;
             public static int Plain(int value) => value;
-            [Pure]
-            public static int Marked(int value) => value;
         }
 
         public sealed class Money : IComparable<Money>
@@ -154,7 +151,6 @@ public sealed class CoreTests
         { "list.Count", true },
         { "a.Equals(b)", true },
         { "i.CompareTo(j)", true },
-        { "Box.Marked(i)", true },
         { "o is string", true },
         { "a?.X", true },
         { "n ?? 0", true },

@@ -9,7 +9,7 @@ namespace TypoAnalyzers.Core;
 /// </summary>
 /// <remarks>
 /// Property getters and operators are assumed pure by convention, as other static analyzers also assume.
-/// Methods count as pure only through the annotation table below, <see cref="System.Diagnostics.Contracts.PureAttribute"/>, or the Equals/CompareTo/GetHashCode convention.
+/// Methods count as pure only through the annotation table below or the Equals/CompareTo/GetHashCode convention.
 /// Create one instance per compilation; symbol lookups happen once in the constructor.
 /// </remarks>
 internal sealed class PurityOracle
@@ -51,7 +51,6 @@ internal sealed class PurityOracle
         "System.Collections.Immutable.ImmutableDictionary`2",
     ];
 
-    private readonly INamedTypeSymbol? _pureAttribute;
     private readonly INamedTypeSymbol? _stream;
     private readonly HashSet<INamedTypeSymbol> _pureTypes = new(SymbolEqualityComparer.Default);
     private readonly HashSet<INamedTypeSymbol> _pureStaticTypes = new(SymbolEqualityComparer.Default);
@@ -59,7 +58,6 @@ internal sealed class PurityOracle
 
     public PurityOracle(Compilation compilation)
     {
-        _pureAttribute = compilation.GetTypeByMetadataName("System.Diagnostics.Contracts.PureAttribute");
         _stream = compilation.GetTypeByMetadataName("System.IO.Stream");
         AddTypes(compilation, s_pureTypeNames, _pureTypes);
         AddTypes(compilation, s_pureStaticTypeNames, _pureStaticTypes);
@@ -159,12 +157,7 @@ internal sealed class PurityOracle
             return method.Name is "Contains" or "ContainsKey" or "ContainsValue" or "Any" or "Count" or "IndexOf";
         }
 
-        if (IsEqualityConvention(method))
-        {
-            return true;
-        }
-
-        return _pureAttribute is not null && HasAttribute(method, _pureAttribute);
+        return IsEqualityConvention(method);
     }
 
     // MoveNext advances an enumerator, and every Stream method moves, resizes or closes the stream.
@@ -238,19 +231,6 @@ internal sealed class PurityOracle
         foreach (var implemented in type.AllInterfaces)
         {
             if (implemented.SpecialType == SpecialType.System_Collections_IEnumerator)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private static bool HasAttribute(IMethodSymbol method, INamedTypeSymbol attribute)
-    {
-        foreach (var data in method.GetAttributes())
-        {
-            if (SymbolEqualityComparer.Default.Equals(data.AttributeClass, attribute))
             {
                 return true;
             }
