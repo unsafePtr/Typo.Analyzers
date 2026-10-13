@@ -14,10 +14,12 @@ namespace TypoAnalyzers.Core;
 internal readonly struct ReadSet
 {
     private readonly HashSet<ISymbol> _symbols;
+    private readonly bool _readsThis;
 
-    private ReadSet(HashSet<ISymbol> symbols, bool readsState)
+    private ReadSet(HashSet<ISymbol> symbols, bool readsState, bool readsThis)
     {
         _symbols = symbols;
+        _readsThis = readsThis;
         ReadsState = readsState;
     }
 
@@ -27,6 +29,7 @@ internal readonly struct ReadSet
     {
         var symbols = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         var readsState = false;
+        var readsThis = false;
         foreach (var operation in expression.DescendantsAndSelf())
         {
             switch (operation)
@@ -42,11 +45,13 @@ internal readonly struct ReadSet
                 case IFieldReferenceOperation field:
                     symbols.Add(field.Field);
                     readsState |= !field.Field.IsReadOnly && !field.Field.IsConst;
+                    readsThis |= field.Instance is IInstanceReferenceOperation;
                     break;
 
                 case IPropertyReferenceOperation property:
                     symbols.Add(property.Property);
                     readsState = true;
+                    readsThis |= property.Instance is IInstanceReferenceOperation;
                     break;
 
                 case IArrayElementReferenceOperation:
@@ -56,10 +61,30 @@ internal readonly struct ReadSet
             }
         }
 
-        return new ReadSet(symbols, readsState);
+        return new ReadSet(symbols, readsState, readsThis);
     }
 
     public bool Contains(ISymbol? symbol) => symbol is not null && _symbols.Contains(symbol);
+
+    /// <summary>
+    /// Answers whether the region writes something the expression reads, which unlike <see cref="MayBeChangedBy"/> needs evidence rather than an unknown call.
+    /// </summary>
+    /// <remarks>
+    /// A call is evidence only on a struct: a method without the readonly modifier may change the struct it runs on, as <c>Utf8JsonReader.Read</c> moves the reader.
+    /// A readonly variable such as an <c>in</c> parameter is copied before such a call, so the call leaves the variable unchanged.
+    /// </remarks>
+    public bool IsWrittenBy(IOperation region, PurityOracle purity)
+    {
+        foreach (var operation in region.DescendantsAndSelf())
+        {
+            if (Writes(operation) || MutatesReadStruct(operation, purity))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public bool MayBeChangedBy(IOperation region, PurityOracle purity, TextSpan? skip = null)
     {
@@ -134,6 +159,20 @@ internal readonly struct ReadSet
                 return false;
         }
     }
+
+    private bool MutatesReadStruct(IOperation operation, PurityOracle purity) =>
+        operation is IInvocationOperation { TargetMethod: { IsStatic: false, IsReadOnly: false } method, Instance: { Type.IsValueType: true } instance }
+        && !purity.IsPure(method)
+        && !IsReadOnlyVariable(instance)
+        && (instance is IInstanceReferenceOperation ? _readsThis : Contains(RootSymbol(instance)));
+
+    private static bool IsReadOnlyVariable(IOperation instance) => instance switch
+    {
+        IParameterReferenceOperation { Parameter.RefKind: RefKind.In or RefKind.RefReadOnlyParameter } => true,
+        IFieldReferenceOperation { Field.IsReadOnly: true } => true,
+        ILocalReferenceOperation { Local.RefKind: RefKind.RefReadOnly } => true,
+        _ => false,
+    };
 
     private bool IsWrittenByClosure(IOperation anywhereInMethod)
     {

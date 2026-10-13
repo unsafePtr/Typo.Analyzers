@@ -80,6 +80,107 @@ public sealed class IdenticalOperandsAnalyzerTests
         Repeat("done", "done", "||"));
 
     [Fact]
+    public Task Utf8JsonReader_ReadBetweenRepeatedTokenChecksIsSilent() => Verify.VerifyAsync(
+        """
+        using System.Text.Json;
+
+        public static class C
+        {
+            public static bool IsMalformed(ref Utf8JsonReader reader) =>
+                !reader.Read() || reader.TokenType != JsonTokenType.StartArray
+                || !reader.Read() || reader.TokenType != JsonTokenType.StartArray
+                || !reader.Read() || reader.TokenType != JsonTokenType.Number;
+        }
+        """);
+
+    [Fact]
+    public Task StructMethodBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        public struct Cursor
+        {
+            private int _position;
+
+            public int Position => _position;
+
+            public bool Advance() => ++_position < 10;
+        }
+
+        public static class C
+        {
+            public static bool M(Cursor cursor) => cursor.Position == 0 && cursor.Advance() && cursor.Position == 0;
+        }
+        """);
+
+    [Fact]
+    public Task StructMethodOnThisBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        public struct Tokenizer
+        {
+            private int _kind;
+
+            private bool Next() => ++_kind < 10;
+
+            public bool IsMalformed() => !Next() || _kind != 1 || !Next() || _kind != 1;
+        }
+        """);
+
+    [Fact]
+    public Task WriteBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        public struct Cursor
+        {
+            public int Position;
+        }
+
+        public static class C
+        {
+            public static bool Increment(int[] items, int i) => items[i] == 0 || items[i++] == 1 || items[i] == 0;
+
+            public static bool ByRef(Cursor cursor) => cursor.Position == 0 || Skip(ref cursor) || cursor.Position == 0;
+
+            private static bool Skip(ref Cursor cursor) => ++cursor.Position < 10;
+        }
+        """);
+
+    [Fact]
+    public Task ReadonlyStructMethodDoesNotHideRepeatedRead() => Verify.VerifyAsync(
+        """
+        public struct Cursor
+        {
+            private int _position;
+
+            public int Position => _position;
+
+            public readonly bool IsLast() => _position == 9;
+        }
+
+        public static class C
+        {
+            public static bool M(Cursor cursor) => {|#1:cursor.Position == 0|} && cursor.IsLast() && {|#0:cursor.Position == 0|};
+        }
+        """,
+        Repeat("cursor.Position == 0", "cursor.Position == 0", "&&"));
+
+    [Fact]
+    public Task StructMethodOnInParameterDoesNotHideRepeatedRead() => Verify.VerifyAsync(
+        """
+        public struct Cursor
+        {
+            private int _position;
+
+            public int Position => _position;
+
+            public bool Advance() => ++_position < 10;
+        }
+
+        public static class C
+        {
+            public static bool M(in Cursor cursor) => {|#1:cursor.Position == 0|} && cursor.Advance() && {|#0:cursor.Position == 0|};
+        }
+        """,
+        Repeat("cursor.Position == 0", "cursor.Position == 0", "&&"));
+
+    [Fact]
     public Task SqlSugar_DuplicateTypeTestOnProperty() => Verify.VerifyAsync(
         """
         public sealed class Column { public object Value { get; set; } }
