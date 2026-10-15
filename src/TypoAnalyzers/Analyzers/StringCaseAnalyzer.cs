@@ -15,7 +15,7 @@ namespace TypoAnalyzers.Analyzers;
 /// The text side may be a literal, a constant, a property whose getter returns a literal, an interpolated string or a concatenation.
 /// Only its constant parts are checked, which is enough because each of them must appear verbatim.
 /// A text side converted to the other case, as in <c>s.ToUpper() == t.ToLower()</c>, is reported too.
-/// A local counts as case-normalized when its initializer is ToLower/ToUpper and nothing assigns it again.
+/// A local counts as case-normalized when its initializer is ToLower/ToUpper or a literal with letters of one case, and nothing assigns it again.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
@@ -204,6 +204,11 @@ public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
         }
 
         var initialCase = CaseOf(value, purity, followLocals: false);
+        if (initialCase == Case.None && value.ConstantValue is { HasValue: true, Value: string literal })
+        {
+            initialCase = CaseOfLiteral(literal);
+        }
+
         if (initialCase == Case.None)
         {
             return Case.None;
@@ -216,6 +221,25 @@ public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
         }
 
         return ReadSet.Of(reference).MayBeChangedBy(root, purity) ? Case.None : initialCase;
+    }
+
+    // A literal with letters of one case only keeps that case, so the local that holds it is as normalized as after ToLower.
+    private static Case CaseOfLiteral(string text)
+    {
+        var hasLower = false;
+        var hasUpper = false;
+        foreach (var character in text)
+        {
+            hasLower |= Conflicts(character, Case.Upper);
+            hasUpper |= Conflicts(character, Case.Lower);
+        }
+
+        return (hasLower, hasUpper) switch
+        {
+            (true, false) => Case.Lower,
+            (false, true) => Case.Upper,
+            _ => Case.None,
+        };
     }
 
     private static bool HasConflictingLetter(IOperation operation, Case target, int depth = 0)

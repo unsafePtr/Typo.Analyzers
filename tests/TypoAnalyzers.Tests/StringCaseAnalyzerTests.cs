@@ -10,6 +10,61 @@ public sealed class StringCaseAnalyzerTests
         Verify.Diagnostic(Descriptors.StringCaseMismatch).WithLocation(0).WithArguments(text, targetCase);
 
     [Fact]
+    public Task LocalWithLowerCaseLiteralSearchedForMixedCase() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M()
+            {
+                string text = "abcde";
+                return text.Contains({|#0:"AbCdE"|});
+            }
+        }
+        """,
+        Mismatch("\"AbCdE\"", "lower"));
+
+    [Fact]
+    public Task LocalWithUpperCaseLiteralComparedWithLowerCase() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M()
+            {
+                var text = "ABC";
+                return text == {|#0:"abc"|};
+            }
+        }
+        """,
+        Mismatch("\"abc\"", "upper"));
+
+    [Fact]
+    public Task LocalLiteralReassignedIsSilent() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M(string other)
+            {
+                string text = "abcde";
+                text = other;
+                return text.Contains("AbCdE");
+            }
+        }
+        """);
+
+    [Fact]
+    public Task LocalLiteralWithBothCasesIsSilent() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M()
+            {
+                string text = "AbcDe";
+                return text.Contains("AbCdE");
+            }
+        }
+        """);
+
+    [Fact]
     public Task SqlSugar_InterpolatedNeedleWithUppercaseKeyword() => Verify.VerifyAsync(
         """
         public static class C

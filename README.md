@@ -85,7 +85,6 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - Swapped arguments matched by parameter name are left to Sonar S2234.
 - TYPO0011 and TYPO0012 scan expression statements and declarations only, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
 - TYPO0008 ignores locals and parameters, which the compiler's unused-assignment check IDE0059 covers.
-- TYPO0010 does not follow a local back to its literal initializer, so `s = "abcde"; s.Contains("AbCdE")` stays silent.
 - TYPO0002 does not flag an arbitrary user method called with its own receiver, as in `a.Foo(a)`, because `list.AddRange(list)` style calls are common.
 
 ## Build and test
