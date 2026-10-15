@@ -1842,4 +1842,70 @@ public sealed class IdenticalBranchesAnalyzerTests
         """,
         Duplicate("SecuritySeedData.OpenInterest"),
         Duplicate("SecuritySeedData.None", marker: 2));
+
+    [Fact]
+    public Task AkkaNet_DecrementCaseIncrementsLikeIncrement() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public abstract class CounterBase
+        {
+            protected abstract void Persist(object message, Action<object> handler);
+
+            private int _value;
+
+            protected void OnCommand(object message)
+            {
+                switch (message as string)
+                {
+                    {|#1:case "inc":|}
+                        _value++;
+                        Persist(message, _ => { });
+                        break;
+
+                    {|#0:case "dec":|}
+                        _value++;
+                        Persist(message, _ => { });
+                        break;
+
+                    default:
+                        return;
+                }
+            }
+        }
+        """,
+        Duplicate("\"inc\""));
+
+    [Fact]
+    public Task AkkaNet_ReplaceModeUsesThePrependLambda() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public enum AddMode { Append, Prepend, Replace }
+
+        public sealed class Config
+        {
+            public Config WithFallback(Config other) => this;
+        }
+
+        public sealed class Builder
+        {
+            private Config _configuration = new();
+
+            private Builder Add(Func<Config, Config, Config> configurator, Config hocon)
+            {
+                _configuration = configurator(_configuration, hocon);
+                return this;
+            }
+
+            public Builder Add(Config hocon, AddMode mode) => mode switch
+            {
+                AddMode.Append => Add((config, add) => config.WithFallback(add), hocon),
+                AddMode.Prepend => {|#1:Add((config, add) => add.WithFallback(config), hocon)|},
+                AddMode.Replace => {|#0:Add((config, add) => add.WithFallback(config), hocon)|},
+                _ => throw new ArgumentOutOfRangeException(nameof(mode)),
+            };
+        }
+        """,
+        Duplicate("AddMode.Prepend"));
 }
