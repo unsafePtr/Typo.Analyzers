@@ -17,7 +17,7 @@ TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info
 | ID | Analyzer | Finds |
 |---|---|---|
 | <a id="typo0001"></a>TYPO0001 | IdenticalOperandsAnalyzer | Repeated operand in a `\|\|` / `&&` / `\|` / `&` / `^` / `or` / `and` chain; identical operands of a comparison, `-`, `/` or `%` |
-| <a id="typo0002"></a>TYPO0002 | SelfArgumentAnalyzer | `x.Equals(x)`, `x.CompareTo(x)`, `Equals(a, a)`, `comparer.Compare(a, a)`, `Math.Max(a, a)`, `s.Contains(s)` |
+| <a id="typo0002"></a>TYPO0002 | SelfArgumentAnalyzer | `x.Equals(x)`, `x.CompareTo(x)`, `Equals(a, a)`, `comparer.Compare(a, a)`, `Math.Max(a, a)`, `s.Contains(s)`, `s.Replace(a, a)`, `s.IndexOf(s)`, `a.Except(a)` |
 | <a id="typo0003"></a>TYPO0003 | RepeatedConditionAnalyzer | `else if` repeating a condition, or one disjunct of a condition, tested earlier in the chain |
 | <a id="typo0004"></a>TYPO0004 | RepeatedConditionAnalyzer | An `if` repeating the condition of the `if` right before it, or of an earlier `if` that always exits, when nothing in between can change it |
 | <a id="typo0005"></a>TYPO0005 | RepeatedConditionAnalyzer | Nested `if` or later `else if` repeating, or negating, a check of an enclosing `if`, as in `if (s == null) … else if (s != null)` |
@@ -83,6 +83,10 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - TYPO0009 stays silent when the loop variable is used for anything but indexing other collections, as in `(i == 0 ? "" : ",") + Name(items[0])`, because `if (i == 0 && items[0] > 0)` has the same shape on purpose.
 - TYPO0001 does not treat `x.HasValue` and `x != null` as the same test; such pairs are redundant rather than copy-paste mistakes.
 - Swapped arguments matched by parameter name are left to Sonar S2234.
+- TYPO0011 and TYPO0012 scan expression statements and declarations only, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
+- TYPO0008 ignores locals and parameters, which the compiler's unused-assignment check IDE0059 covers.
+- TYPO0010 does not follow a local back to its literal initializer, so `s = "abcde"; s.Contains("AbCdE")` stays silent.
+- TYPO0002 does not flag an arbitrary user method called with its own receiver, as in `a.Foo(a)`, because `list.AddRange(list)` style calls are common.
 
 ## Build and test
 
