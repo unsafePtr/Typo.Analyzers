@@ -12,7 +12,8 @@ namespace TypoAnalyzers.Analyzers;
 /// </summary>
 /// <remarks>
 /// Only the statement right before the <c>if</c> counts, and a plain copy such as <c>_name = name; if (name == null)</c> is left alone because both names hold the same value.
-/// Two names are similar when, ignoring case and a leading underscore or <c>m_</c>, one contains the other and the shorter has at least three characters.
+/// Two variables are similar when they have the same type and the same name, ignoring case and a leading underscore or <c>m_</c>.
+/// A survey of Nethereum showed that looser name matching only finds deliberate checks of a source object before it is copied.
 /// An earlier check of a differently assigned variable, as in <c>user2 = Find(id2); if (user1 == null)</c>, is TYPO0004's.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -78,7 +79,7 @@ public sealed class AssignedVariableCheckAnalyzer : DiagnosticAnalyzer
                 || SymbolEqualityComparer.Default.Equals(source, target)
                 || ReferenceEquals(operation, unwrapped)
                 || !conditionReads.Contains(source)
-                || !AreSimilar(target.Name, source.Name))
+                || !AreSimilar(target, source))
             {
                 continue;
             }
@@ -117,13 +118,20 @@ public sealed class AssignedVariableCheckAnalyzer : DiagnosticAnalyzer
         _ => null,
     };
 
-    private static bool AreSimilar(string first, string second)
+    // Same name apart from the prefix and the same type, as in '_value' and 'value'; 'options' next to a config's '_options' of another type is a different thing.
+    private static bool AreSimilar(ISymbol target, ISymbol source) =>
+        string.Equals(Normalize(target.Name), Normalize(source.Name), StringComparison.OrdinalIgnoreCase)
+        && Normalize(target.Name).Length >= MinimumNameLength
+        && SymbolEqualityComparer.Default.Equals(TypeOf(target), TypeOf(source));
+
+    private static ITypeSymbol? TypeOf(ISymbol symbol) => symbol switch
     {
-        var x = Normalize(first);
-        var y = Normalize(second);
-        var (shorter, longer) = x.Length <= y.Length ? (x, y) : (y, x);
-        return shorter.Length >= MinimumNameLength && longer.Contains(shorter, StringComparison.OrdinalIgnoreCase);
-    }
+        ILocalSymbol local => local.Type,
+        IParameterSymbol parameter => parameter.Type,
+        IFieldSymbol field => field.Type,
+        IPropertySymbol property => property.Type,
+        _ => null,
+    };
 
     private static string Normalize(string name)
     {

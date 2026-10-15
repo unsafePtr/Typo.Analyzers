@@ -37,17 +37,17 @@ public sealed class AssignedVariableCheckAnalyzerTests
         {
             public static bool M(string path)
             {
-                var normalPath = path.Trim();
+                var _path = path.Trim();
                 if ({|#0:path|}.Length == 0)
                 {
                     return false;
                 }
 
-                return normalPath.Length > 3;
+                return _path.Length > 3;
             }
         }
         """,
-        Checked("normalPath", "path"));
+        Checked("_path", "path"));
 
     [Fact]
     public Task DeclarationFromTransformedSource() => Verify.VerifyAsync(
@@ -159,6 +159,52 @@ public sealed class AssignedVariableCheckAnalyzerTests
                 {
                     System.Console.WriteLine("empty");
                 }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task SameNameButDifferentTypeIsSilent() => Verify.VerifyAsync(
+        """
+        public sealed class Builder
+        {
+            public bool EnableStatistics;
+        }
+
+        public sealed class Config
+        {
+            public bool EnableStatistics;
+        }
+
+        public sealed class Manager
+        {
+            private readonly Config _options = new();
+
+            public void Setup()
+            {
+                var options = new Builder { EnableStatistics = _options.EnableStatistics };
+                if (_options.EnableStatistics)
+                {
+                    System.Console.WriteLine(options);
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task NameOnlyContainingTheSourceNameIsSilent() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M(string path)
+            {
+                var normalPath = path.Trim();
+                if (path.Length == 0)
+                {
+                    return false;
+                }
+
+                return normalPath.Length > 3;
             }
         }
         """);

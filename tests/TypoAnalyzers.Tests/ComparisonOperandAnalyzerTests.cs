@@ -47,7 +47,7 @@ public sealed class ComparisonOperandAnalyzerTests
         {
             public int Size;
 
-            public bool M(P other) => other.Size >= {|#1:{|#0:other.Size|} + Size|};
+            public bool M(P other) => other.Size != {|#1:{|#0:other.Size|} + Size|};
         }
         """,
         Repeated("other.Size", "other.Size + Size"));
@@ -89,6 +89,24 @@ public sealed class ComparisonOperandAnalyzerTests
             private int Next() => ++_state;
 
             public bool M() => Next() == Next() + 1;
+        }
+        """);
+
+    [Fact]
+    public Task UnsignedOverflowGuardIsSilent() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M(ulong nonce) => nonce + 1 < nonce;
+        }
+        """);
+
+    [Fact]
+    public Task CarryCheckOfASumIsSilent() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static bool M(uint a, uint b) => a + b < a;
         }
         """);
 }

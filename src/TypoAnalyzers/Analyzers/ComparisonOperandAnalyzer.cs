@@ -11,7 +11,7 @@ namespace TypoAnalyzers.Analyzers;
 /// </summary>
 /// <remarks>
 /// With <c>==</c> and <c>!=</c> the result is fixed unless the other terms are zero, and with an ordering the shared term cancels out.
-/// A constant shared term, as in <c>2 &lt; 2 * y</c>, and string concatenation are left alone.
+/// A constant shared term, as in <c>2 &lt; 2 * y</c>, string concatenation and the integer wrap-around test <c>a + b &lt; a</c> are left alone.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class ComparisonOperandAnalyzer : DiagnosticAnalyzer
@@ -39,11 +39,24 @@ public sealed class ComparisonOperandAnalyzer : DiagnosticAnalyzer
             return;
         }
 
+        if (IsOverflowIdiom(comparison))
+        {
+            return;
+        }
+
         if (!TryReport(context, comparison.LeftOperand, comparison.RightOperand, purity))
         {
             TryReport(context, comparison.RightOperand, comparison.LeftOperand, purity);
         }
     }
+
+    // 'a + b < a' and 'n + 1 < n' are how unchecked integer arithmetic tests for wrap-around.
+    private static bool IsOverflowIdiom(IBinaryOperation comparison) =>
+        comparison.OperatorKind is not (BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals)
+        && (IsIntegralSum(Skip(comparison.LeftOperand)) || IsIntegralSum(Skip(comparison.RightOperand)));
+
+    private static bool IsIntegralSum(IOperation operation) =>
+        operation is IBinaryOperation { OperatorKind: BinaryOperatorKind.Add or BinaryOperatorKind.Subtract, Type.SpecialType: >= SpecialType.System_SByte and <= SpecialType.System_UInt64 };
 
     private static bool TryReport(OperationAnalysisContext context, IOperation single, IOperation compound, PurityOracle purity)
     {
