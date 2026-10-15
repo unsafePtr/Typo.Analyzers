@@ -539,7 +539,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         for (var c = key + 1; c < columns; c++)
         {
             var copy = slots[b + c];
-            if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation))
+            if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation) || IsMemberOfRenamedReceiver(slots, a, b, columns, copy.Operation))
             {
                 continue;
             }
@@ -564,6 +564,26 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             Report(context, Descriptors.SimilarPairAnomaly, copy, name, expected);
             return;
         }
+    }
+
+    // A member of a renamed receiver keeps its own name, as Row1 does in 'Lerp(matrix1.Row1, matrix2.Row1, amount)', where only the receiver and the parameter carry the changed digit.
+    private static bool IsMemberOfRenamedReceiver(List<Slot> slots, int a, int b, int columns, IOperation copy)
+    {
+        if (copy is not IMemberReferenceOperation { Instance: { } instance })
+        {
+            return false;
+        }
+
+        var receiver = SkipImplicitConversions(instance);
+        for (var c = 0; c < columns; c++)
+        {
+            if (ReferenceEquals(slots[b + c].Operation, receiver) && !SameName(slots[a + c], slots[b + c]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // When a column other than the key renames an enclosing access or call, the names inside it are shared on purpose.

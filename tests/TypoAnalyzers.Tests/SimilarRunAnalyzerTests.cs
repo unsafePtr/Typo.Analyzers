@@ -1789,4 +1789,85 @@ public sealed class SimilarRunAnalyzerTests
         }
         """,
         Anomaly("fields", "qualifiers"));
+
+    [Fact]
+    public Task SilkNet_LerpPairsTheSameRowOfBothMatrices() => Verify.VerifyAsync(
+        """
+        public struct Vector3D<T> where T : unmanaged
+        {
+            public T X;
+            public T Y;
+            public T Z;
+        }
+
+        public static class Vector3D
+        {
+            public static Vector3D<T> Lerp<T>(Vector3D<T> value1, Vector3D<T> value2, T amount)
+                where T : unmanaged => value1;
+        }
+
+        public struct Matrix2X3<T> where T : unmanaged
+        {
+            public Vector3D<T> Row1;
+            public Vector3D<T> Row2;
+
+            public Matrix2X3(Vector3D<T> row1, Vector3D<T> row2)
+            {
+                Row1 = row1;
+                Row2 = row2;
+            }
+        }
+
+        public static class Matrix2X3
+        {
+            public static unsafe Matrix2X3<T> Lerp<T>(Matrix2X3<T> matrix1, Matrix2X3<T> matrix2, T amount)
+                where T : unmanaged
+            {
+                return new(Vector3D.Lerp(matrix1.Row1, matrix2.Row1, amount), Vector3D.Lerp(matrix1.Row2, matrix2.Row2, amount));
+            }
+        }
+        """);
+
+    [Fact]
+    public Task SilkNet_ThirdResultRowRepeatsTheSecondRow() => Verify.VerifyAsync(
+        """
+        public struct Vec2
+        {
+            public float X;
+            public float Y;
+
+            public static Vec2 operator *(float scale, Vec2 value) => value;
+
+            public static Vec2 operator +(Vec2 left, Vec2 right) => left;
+        }
+
+        public struct Matrix3X4
+        {
+            public float M11, M12, M13, M14;
+            public float M21, M22, M23, M24;
+            public float M31, M32, M33, M34;
+        }
+
+        public struct Matrix4X2
+        {
+            public Vec2 Row1, Row2, Row3, Row4;
+        }
+
+        public struct Matrix3X2
+        {
+            public Matrix3X2(Vec2 row1, Vec2 row2, Vec2 row3)
+            {
+            }
+
+            public static Matrix3X2 Multiply(Matrix3X4 value1, Matrix4X2 value2)
+            {
+                return new(
+                    value1.M11 * value2.Row1 + value1.M12 * value2.Row2 + value1.M13 * value2.Row3 + value1.M14 * value2.Row4,
+                    value1.M21 * value2.Row1 + value1.M22 * value2.Row2 + value1.M23 * value2.Row3 + value1.M24 * value2.Row4,
+                    {|#0:value1.M21|} * value2.Row1 + value1.M22 * value2.Row2 + value1.M23 * value2.Row3 + value1.M24 * value2.Row4
+                );
+            }
+        }
+        """,
+        Anomaly("value1.M21", "value1.M31"));
 }
