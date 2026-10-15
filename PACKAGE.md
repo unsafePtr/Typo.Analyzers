@@ -21,6 +21,8 @@ Each ID links to examples on GitHub.
 | [TYPO0010](https://github.com/unsafePtr/TypoAnalyzer#typo0010) | Comparison with a string of the wrong case | Warning |
 | [TYPO0011](https://github.com/unsafePtr/TypoAnalyzer#typo0011) | Probable unedited copy in a sequence of similar lines | Info |
 | [TYPO0012](https://github.com/unsafePtr/TypoAnalyzer#typo0012) | Probable unedited copy in a pair of similar lines | Info |
+| [TYPO0013](https://github.com/unsafePtr/TypoAnalyzer#typo0013) | Comparison operand repeated on the other side | Info |
+| [TYPO0014](https://github.com/unsafePtr/TypoAnalyzer#typo0014) | Condition checks the source of the variable just assigned | Info |
 
 ## Options
 

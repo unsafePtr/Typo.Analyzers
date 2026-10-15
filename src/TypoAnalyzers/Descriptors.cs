@@ -126,4 +126,24 @@ internal static class Descriptors
         isEnabledByDefault: true,
         description: "Two adjacent similar statements, declarations, initializer members, conditions or arguments rename one word, such as Width to Height, but the second still uses a name built from the first word, as in 'Width == other.Width && Height == other.Width'. This heuristic is reported as a suggestion and can be turned off separately from TYPO0011. The 'TYPO0012.scan' option in .editorconfig limits it to some kinds of items, as in 'TYPO0012.scan = declarations, arguments'.",
         helpLinkUri: HelpLinkBase + "typo0012");
+
+    public static readonly DiagnosticDescriptor RepeatedOperandAcrossComparison = new(
+        id: "TYPO0013",
+        title: "Comparison operand repeated on the other side",
+        messageFormat: "'{0}' is also an operand of '{1}' on the other side of the comparison",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "One side of a comparison is a variable and the other side is a sum, difference or product that contains the same variable, as in 'x == x + 1' or 'x < x * y'. The comparison is constant or can be simplified, and one of the two was usually meant to be a different variable. This heuristic is reported as a suggestion.",
+        helpLinkUri: HelpLinkBase + "typo0013");
+
+    public static readonly DiagnosticDescriptor CheckedSourceInsteadOfAssigned = new(
+        id: "TYPO0014",
+        title: "Condition checks the source of the variable just assigned",
+        messageFormat: "'{0}' was just assigned from an expression using '{1}', but the condition tests '{1}' instead of '{0}'",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "A variable is assigned a transformed copy of another variable with a similar name, and the next 'if' tests the original instead of the variable just assigned, as in '_value = value < 0 ? 0 : value; if (value == 0)'. This heuristic is reported as a suggestion.",
+        helpLinkUri: HelpLinkBase + "typo0014");
 }

@@ -17,3 +17,5 @@ TYPO0009 | Correctness | Warning | LoopIndexAnalyzer
 TYPO0010 | Correctness | Warning | StringCaseAnalyzer
 TYPO0011 | Correctness | Info | SimilarRunAnalyzer
 TYPO0012 | Correctness | Info | SimilarRunAnalyzer
+TYPO0013 | Correctness | Info | ComparisonOperandAnalyzer
+TYPO0014 | Correctness | Info | AssignedVariableCheckAnalyzer
