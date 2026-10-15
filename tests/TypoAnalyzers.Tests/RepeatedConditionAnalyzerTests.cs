@@ -12,6 +12,70 @@ public sealed class RepeatedConditionAnalyzerTests
         Verify.Diagnostic(descriptor).WithLocation(0).WithLocation(1).WithArguments(arguments);
 
     [Fact]
+    public Task MirroredRelationInsideNestedIf() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private void Do(int a, int b) { }
+
+            public void M(int a, int b)
+            {
+                if ({|#1:a < b|})
+                {
+                    if ({|#0:b < a|})
+                    {
+                        Do(a, b);
+                    }
+                }
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "b < a", "false"));
+
+    [Fact]
+    public Task OverlappingRelationsInsideNestedIfAreSilent() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private void Do(int a, int b) { }
+
+            public void M(int a, int b)
+            {
+                if (a <= b)
+                {
+                    if (b <= a)
+                    {
+                        Do(a, b);
+                    }
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task StringMemberConditionIsNotMutableState() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private void Print(string text) { }
+
+            public void M(string first, string second)
+            {
+                if ({|#1:!string.IsNullOrEmpty(first)|})
+                {
+                    Print(first);
+                }
+
+                if ({|#0:!string.IsNullOrEmpty(first)|})
+                {
+                    Print(second);
+                }
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedAdjacentCondition, "!string.IsNullOrEmpty(first)"));
+
+    [Fact]
     public Task ElseIfRepeatsEarlierCondition() => Verify.VerifyAsync(
         """
         public static class C

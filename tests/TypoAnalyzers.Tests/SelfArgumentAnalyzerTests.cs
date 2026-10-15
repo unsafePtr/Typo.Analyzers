@@ -11,6 +11,26 @@ public sealed class SelfArgumentAnalyzerTests
         Verify.Diagnostic(Descriptors.ComparedWithItself).WithLocation(0).WithLocation(1).WithArguments(operand, method);
 
     [Fact]
+    public Task ReplaceWithSameOldAndNewValue() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static string M(string text) => text.Replace({|#1:"-"|}, {|#0:"-"|});
+        }
+        """,
+        Self("\"-\"", "Replace"));
+
+    [Fact]
+    public Task IndexOfWithSameArgument() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(string text) => {|#1:text|}.IndexOf({|#0:text|});
+        }
+        """,
+        Self("text", "IndexOf"));
+
+    [Fact]
     public Task DotNet10_CompareToComparesFieldWithItself() => Verify.VerifyAsync(
         """
         using System;

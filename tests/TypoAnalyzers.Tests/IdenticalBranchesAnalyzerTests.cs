@@ -19,6 +19,56 @@ public sealed class IdenticalBranchesAnalyzerTests
         Verify.Diagnostic(Descriptors.DuplicateBranchBody).WithLocation(marker).WithLocation(marker + 1).WithArguments(originalLabel);
 
     [Fact]
+    public Task SwitchPatternVariablesOfReferenceTypesCallSameMember() => Verify.VerifyAsync(
+        """
+        using System;
+        using System.Collections.Generic;
+
+        public static class C
+        {
+            public static void M(object value, bool verbose)
+            {
+                switch (value)
+                {
+                    {|#1:case Array items:|}
+                        if (verbose) Console.WriteLine(items.ToString());
+                        break;
+                    {|#0:case IEnumerable<int> items:|}
+                        if (verbose) Console.WriteLine(items.ToString());
+                        break;
+                }
+            }
+        }
+        """,
+        Duplicate("Array items"));
+
+    [Fact]
+    public Task SwitchPatternVariablesCallingDifferentMembersAreSilent() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class A { public int Area() => 1; }
+
+        public sealed class B { public int Area() => 2; }
+
+        public static class C
+        {
+            public static void M(object value)
+            {
+                switch (value)
+                {
+                    case A shape:
+                        Console.WriteLine(shape.Area());
+                        break;
+                    case B shape:
+                        Console.WriteLine(shape.Area());
+                        break;
+                }
+            }
+        }
+        """);
+
+    [Fact]
     public Task IfAndElseIdentical() => Verify.VerifyAsync(
         """
         using System.Collections.Generic;

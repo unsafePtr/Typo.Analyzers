@@ -7,7 +7,7 @@ using TypoAnalyzers.Core;
 namespace TypoAnalyzers.Analyzers;
 
 /// <summary>
-/// TYPO0002: <c>x.Equals(x)</c>, <c>x.CompareTo(x)</c>, <c>Equals(a, a)</c>, <c>comparer.Compare(a, a)</c>, <c>Math.Max(a, a)</c>, <c>s.Contains(s)</c> and similar.
+/// TYPO0002: <c>x.Equals(x)</c>, <c>x.CompareTo(x)</c>, <c>Equals(a, a)</c>, <c>comparer.Compare(a, a)</c>, <c>Math.Max(a, a)</c>, <c>s.Contains(s)</c>, <c>s.Replace(a, a)</c> and similar.
 /// </summary>
 /// <remarks>
 /// Values of user-defined types are skipped because tests legitimately assert reflexivity, as in <c>Assert.True(money.Equals(money))</c>.
@@ -53,7 +53,8 @@ public sealed class SelfArgumentAnalyzer : DiagnosticAnalyzer
     {
         "Equals" or "ReferenceEquals" or "Compare" or "CompareTo" or "CompareOrdinal" or "SequenceEqual" => true,
         "Max" or "Min" => method.ContainingType.Name is "Math" or "MathF" && method.ContainingNamespace.Name == "System",
-        "Contains" or "StartsWith" or "EndsWith" => method.ContainingType.SpecialType == SpecialType.System_String,
+        "Contains" or "StartsWith" or "EndsWith" or "Replace" or "IndexOf" or "LastIndexOf" => method.ContainingType.SpecialType == SpecialType.System_String,
+        "Except" or "Intersect" => method.ContainingType.Name == "Enumerable" && method.ContainingNamespace.ToDisplayString() == "System.Linq",
         _ => false,
     };
 

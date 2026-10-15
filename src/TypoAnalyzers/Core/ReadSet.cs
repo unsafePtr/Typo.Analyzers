@@ -14,6 +14,7 @@ namespace TypoAnalyzers.Core;
 /// Passing a <c>Span&lt;T&gt;</c> or <c>Memory&lt;T&gt;</c> argument writes the array or span it views, as in <c>value.TryFormat(buffer, out _)</c>.
 /// In <see cref="MayBeChangedBy"/>, a call to a method not known to be pure counts as a change when the expression reads state.
 /// State is a mutable field, a property, an array element or the result of a call.
+/// A member of string or a primitive, such as <c>s.Length</c> or <c>string.IsNullOrEmpty(s)</c>, is not state of its own.
 /// The same call also counts when a lambda or local function in the method writes a local or parameter the expression reads.
 /// An await counts as a change when the expression reads state, and a dynamic call always does.
 /// </remarks>
@@ -56,12 +57,15 @@ internal readonly struct ReadSet
 
                 case IPropertyReferenceOperation property:
                     symbols.Add(property.Property);
-                    readsState = true;
+                    readsState |= !IsImmutableMember(property.Property);
                     readsThis |= property.Instance is IInstanceReferenceOperation;
                     break;
 
+                case IInvocationOperation invocation:
+                    readsState |= !IsImmutableMember(invocation.TargetMethod);
+                    break;
+
                 case IArrayElementReferenceOperation:
-                case IInvocationOperation:
                     readsState = true;
                     break;
             }
@@ -69,6 +73,12 @@ internal readonly struct ReadSet
 
         return new ReadSet(symbols, readsState, readsThis);
     }
+
+    // A member of string or a primitive reads only its receiver and arguments, which the descendants already account for.
+    // CopyTo writes an array, and the array argument is tracked as a write through the argument.
+    private static bool IsImmutableMember(ISymbol member) =>
+        member.ContainingType.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_String
+        && member.Name != "CopyTo";
 
     public bool Contains(ISymbol? symbol) => symbol is not null && _symbols.Contains(symbol);
 

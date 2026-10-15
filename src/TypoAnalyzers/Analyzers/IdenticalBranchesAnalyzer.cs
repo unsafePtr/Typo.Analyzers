@@ -192,11 +192,18 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
     // Locals and lambda parameters declared inside each copy, such as pattern variables or the 'o' of 'o => GetValue(o)', are interchangeable when name and type match.
     private static bool SameSymbol(ISymbol? x, ISymbol? y) => SymbolEqualityComparer.Default.Equals(x, y) || (x, y) switch
     {
-        (ILocalSymbol left, ILocalSymbol right) => left.Name == right.Name && SymbolEqualityComparer.Default.Equals(left.Type, right.Type),
+        (ILocalSymbol left, ILocalSymbol right) => left.Name == right.Name && (SymbolEqualityComparer.Default.Equals(left.Type, right.Type) || BothPlainReferences(left.Type, right.Type)),
         (IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.AnonymousFunction } } left, IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.AnonymousFunction } } right) =>
             left.Name == right.Name && left.Ordinal == right.Ordinal && SymbolEqualityComparer.Default.Equals(left.Type, right.Type),
         _ => false,
     };
+
+    // Members used through two reference-typed variables are compared by symbol, so 'arr.ToString()' on an Array and an IEnumerable<int> is the same call, while 'Circle.Area' and 'Square.Area' differ.
+    // Strings and delegates are left out because their operators and conversions depend on the exact type.
+    private static bool BothPlainReferences(ITypeSymbol x, ITypeSymbol y) =>
+        x.IsReferenceType && y.IsReferenceType
+        && x.SpecialType != SpecialType.System_String && y.SpecialType != SpecialType.System_String
+        && x.TypeKind != TypeKind.Delegate && y.TypeKind != TypeKind.Delegate;
 
     private static string LabelText(SwitchLabelSyntax label) => label switch
     {

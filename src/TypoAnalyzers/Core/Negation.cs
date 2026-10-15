@@ -62,12 +62,13 @@ internal static class Negation
         switch (x)
         {
             case IBinaryOperation { OperatorMethod: null } left when y is IBinaryOperation { OperatorMethod: null } right:
-                return Complement(left.OperatorKind) == right.OperatorKind
-                    && (!exhaustive || left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals || (!left.IsLifted && !IsFloatingPoint(left.LeftOperand.Type)))
-                    && ((OperationEquivalence.AreEquivalent(left.LeftOperand, right.LeftOperand) && OperationEquivalence.AreEquivalent(left.RightOperand, right.RightOperand))
-                        || (left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
-                            && OperationEquivalence.AreEquivalent(left.LeftOperand, right.RightOperand)
-                            && OperationEquivalence.AreEquivalent(left.RightOperand, right.LeftOperand)));
+                return (Complement(left.OperatorKind) == right.OperatorKind
+                        && (!exhaustive || left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals || (!left.IsLifted && !IsFloatingPoint(left.LeftOperand.Type)))
+                        && ((OperationEquivalence.AreEquivalent(left.LeftOperand, right.LeftOperand) && OperationEquivalence.AreEquivalent(left.RightOperand, right.RightOperand))
+                            || (left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
+                                && OperationEquivalence.AreEquivalent(left.LeftOperand, right.RightOperand)
+                                && OperationEquivalence.AreEquivalent(left.RightOperand, right.LeftOperand))))
+                    || (!exhaustive && AreDisjointRelations(left, right));
 
             // 'o is string' binds as a type check while 'o is not string' binds as a negated type pattern.
             case IIsTypeOperation { IsNegated: false } left when y is IIsPatternOperation { Pattern: INegatedPatternOperation { Pattern: ITypePatternOperation pattern } } right:
@@ -119,6 +120,46 @@ internal static class Negation
 
     private static bool IsNullLiteral(IOperation operation) =>
         Skip(operation) is ILiteralOperation { ConstantValue: { HasValue: true, Value: null } };
+
+    // Reads both comparisons as relations between the same two operands, so 'a < b' and 'b < a' never both hold.
+    // The result holds for NaN and null as well, since a comparison with either is false.
+    private static bool AreDisjointRelations(IBinaryOperation left, IBinaryOperation right)
+    {
+        var leftRelations = Relations(left.OperatorKind);
+        var rightRelations = Relations(right.OperatorKind);
+        if (leftRelations == 0 || rightRelations == 0)
+        {
+            return false;
+        }
+
+        if (OperationEquivalence.AreEquivalent(left.LeftOperand, right.RightOperand) && OperationEquivalence.AreEquivalent(left.RightOperand, right.LeftOperand))
+        {
+            rightRelations = Mirror(rightRelations);
+        }
+        else if (!OperationEquivalence.AreEquivalent(left.LeftOperand, right.LeftOperand) || !OperationEquivalence.AreEquivalent(left.RightOperand, right.RightOperand))
+        {
+            return false;
+        }
+
+        return (leftRelations & rightRelations) == 0;
+    }
+
+    private const int Less = 1;
+    private const int Same = 2;
+    private const int Greater = 4;
+
+    private static int Relations(BinaryOperatorKind kind) => kind switch
+    {
+        BinaryOperatorKind.LessThan => Less,
+        BinaryOperatorKind.LessThanOrEqual => Less | Same,
+        BinaryOperatorKind.Equals => Same,
+        BinaryOperatorKind.NotEquals => Less | Greater,
+        BinaryOperatorKind.GreaterThanOrEqual => Greater | Same,
+        BinaryOperatorKind.GreaterThan => Greater,
+        _ => 0,
+    };
+
+    private static int Mirror(int relations) => (relations & Same) | ((relations & Less) != 0 ? Greater : 0) | ((relations & Greater) != 0 ? Less : 0);
 
     private static BinaryOperatorKind Complement(BinaryOperatorKind kind) => kind switch
     {
