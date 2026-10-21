@@ -1185,7 +1185,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
     private static void Report(OperationAnalysisContext context, DiagnosticDescriptor descriptor, Slot slot, string oddName, string expected)
     {
-        var text = slot.Operation.Syntax.ToString();
+        var text = Quote.Of(slot.Operation.Syntax);
         var at = text.LastIndexOf(oddName, StringComparison.Ordinal);
         var suggestion = at >= 0 ? text.Substring(0, at) + expected + text.Substring(at + oddName.Length) : expected;
         context.ReportDiagnostic(Diagnostic.Create(

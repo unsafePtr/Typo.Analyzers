@@ -280,5 +280,5 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
             Descriptors.IdenticalSubExpressions,
             duplicate.Syntax.GetLocation(),
             additionalLocations: [original.Syntax.GetLocation()],
-            messageArgs: [duplicate.Syntax.ToString(), original.Syntax.ToString(), operatorText]));
+            messageArgs: [Quote.Of(duplicate.Syntax), Quote.Of(original.Syntax), operatorText]));
 }

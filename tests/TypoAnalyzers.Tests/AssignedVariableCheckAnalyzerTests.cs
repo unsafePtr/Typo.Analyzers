@@ -106,6 +106,47 @@ public sealed class AssignedVariableCheckAnalyzerTests
         }
         """);
 
+    // The guard either stores 'body' itself or throws.
+    [Fact]
+    public Task NullGuardedCopyIsSilent() => Verify.VerifyAsync(
+        """
+        public sealed class Reader
+        {
+            private readonly System.IO.Stream _body;
+            private readonly long _length;
+
+            public Reader(System.IO.Stream body)
+            {
+                _body = body ?? throw new System.ArgumentNullException(nameof(body));
+
+                if (body.CanSeek)
+                {
+                    _length = body.Length;
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task CoalesceWithFallbackStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class CustomType
+        {
+            private readonly string _name;
+
+            public CustomType(string name)
+            {
+                _name = name ?? "unknown";
+
+                if ({|#0:name|} == null)
+                {
+                    System.Console.WriteLine("anonymous");
+                }
+            }
+        }
+        """,
+        Checked("_name", "name"));
+
     [Fact]
     public Task SourceWithDifferentNameIsSilent() => Verify.VerifyAsync(
         """

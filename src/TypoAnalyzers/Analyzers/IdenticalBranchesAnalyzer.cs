@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
+using TypoAnalyzers.Core;
 
 namespace TypoAnalyzers.Analyzers;
 
@@ -50,7 +51,7 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
                     Descriptors.IdenticalBranches,
                     ifStatement.Condition.GetLocation(),
                     additionalLocations: [ifStatement.Statement.GetLocation(), elseClause.Statement.GetLocation()],
-                    messageArgs: ["if", ifStatement.Condition.ToString()]));
+                    messageArgs: ["if", Quote.Of(ifStatement.Condition)]));
             }
         }
 
@@ -65,8 +66,12 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
         var bodies = new List<(StatementSyntax Body, string Label)>();
         for (var link = root; link is not null; link = link.Else?.Statement as IfStatementSyntax)
         {
-            bodies.Add((Unwrap(link.Statement), link.Condition.ToString()));
-            if (link.Else is { Statement: not IfStatementSyntax } finalElse)
+            var body = Unwrap(link.Statement);
+            bodies.Add((body, Quote.Of(link.Condition)));
+
+            // A final else that copies its own if is TYPO0006's, which AnalyzeIf reports on that if; a substantial body is never empty.
+            if (link.Else is { Statement: not IfStatementSyntax } finalElse
+                && !SameCode(body, Unwrap(finalElse.Statement), context.SemanticModel))
             {
                 bodies.Add((Unwrap(finalElse.Statement), "else"));
             }
@@ -99,7 +104,7 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
                 Descriptors.IdenticalBranches,
                 conditional.Condition.GetLocation(),
                 additionalLocations: [conditional.WhenTrue.GetLocation(), conditional.WhenFalse.GetLocation()],
-                messageArgs: ["?:", conditional.Condition.ToString()]));
+                messageArgs: ["?:", Quote.Of(conditional.Condition)]));
         }
     }
 
@@ -138,7 +143,7 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
             {
                 if (SameCode(arms[j].Expression, arms[i].Expression, context.SemanticModel))
                 {
-                    ReportDuplicate(context, arms[i].Expression, arms[j].Expression, arms[j].Pattern.ToString());
+                    ReportDuplicate(context, arms[i].Expression, arms[j].Expression, Quote.Of(arms[j].Pattern));
                     break;
                 }
             }
@@ -207,8 +212,8 @@ public sealed class IdenticalBranchesAnalyzer : DiagnosticAnalyzer
 
     private static string LabelText(SwitchLabelSyntax label) => label switch
     {
-        CaseSwitchLabelSyntax value => value.Value.ToString(),
-        CasePatternSwitchLabelSyntax pattern => pattern.Pattern.ToString(),
+        CaseSwitchLabelSyntax value => Quote.Of(value.Value),
+        CasePatternSwitchLabelSyntax pattern => Quote.Of(pattern.Pattern),
         _ => "default",
     };
 

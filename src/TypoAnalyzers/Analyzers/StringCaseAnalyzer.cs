@@ -362,5 +362,5 @@ public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
         context.ReportDiagnostic(Diagnostic.Create(
             Descriptors.StringCaseMismatch,
             text.Syntax.GetLocation(),
-            messageArgs: [text.Syntax.ToString(), target == Case.Lower ? "lower" : "upper"]));
+            messageArgs: [Quote.Of(text.Syntax), target == Case.Lower ? "lower" : "upper"]));
 }

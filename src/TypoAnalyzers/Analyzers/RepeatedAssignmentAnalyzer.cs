@@ -14,6 +14,8 @@ namespace TypoAnalyzers.Analyzers;
 /// Locals and parameters are left to IDE0059.
 /// A property is tracked when it is get-only or has an auto-implemented setter declared in source. An indexer is tracked only on the listed collections.
 /// Hand-written setters and setters from referenced assemblies may have side effects that make a second write meaningful.
+/// Run between the two writes, such a setter may also read the target, as the setters do around a guard flag in <c>_loading = true; Items = items; _loading = false;</c>, so it ends the run like an impure call.
+/// Only a setter in the same file that is provably inert does not end it.
 /// Only a run of plain assignment statements is scanned; any other statement ends it.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -79,13 +81,13 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
                             Descriptors.OverwrittenBeforeUse,
                             next.Target.Syntax.GetLocation(),
                             additionalLocations: [first.Target.Syntax.GetLocation()],
-                            messageArgs: [next.Target.Syntax.ToString()]));
+                            messageArgs: [Quote.Of(next.Target.Syntax)]));
                     }
 
                     break;
                 }
 
-                if (References(next, symbol, writingConstructor) || CallsImpure(next, purity))
+                if (References(next, symbol, writingConstructor) || CallsImpure(next, symbol, purity, collections, context.CancellationToken))
                 {
                     break;
                 }
@@ -151,18 +153,66 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         && SkipConversions(instance) is IParameterReferenceOperation { Parameter: { RefKind: RefKind.None } parameter }
         && SymbolEqualityComparer.Default.Equals(parameter.ContainingSymbol, constructor);
 
-    private static bool CallsImpure(IOperation operation, PurityOracle purity)
+    private static bool CallsImpure(IOperation operation, ISymbol target, PurityOracle purity, HashSet<INamedTypeSymbol> collections, CancellationToken cancellationToken)
     {
         foreach (var descendant in operation.DescendantsAndSelf())
         {
-            if (descendant is IInvocationOperation invocation && !purity.IsPure(invocation.TargetMethod) && !FillsNewCollection(invocation))
+            switch (descendant)
             {
-                return true;
+                case IInvocationOperation invocation when !purity.IsPure(invocation.TargetMethod) && !FillsNewCollection(invocation):
+                case IAssignmentOperation { Target: IPropertyReferenceOperation assigned }
+                    when RunsSetter(assigned, collections) && !IsInert(assigned, target, purity, collections, cancellationToken):
+                case IIncrementOrDecrementOperation { Target: IPropertyReferenceOperation incremented }
+                    when RunsSetter(incremented, collections) && !IsInert(incremented, target, purity, collections, cancellationToken):
+                    return true;
             }
         }
 
         return false;
     }
+
+    // A setter declared in this file is inert when it never names the target, calls nothing impure and runs no other hand-written setter, as 'set => _size = Math.Max(0, value);'.
+    // A setter that raises an event is not, because the handler may read a guard flag, and one from another file or assembly cannot be checked here.
+    private static bool IsInert(IPropertyReferenceOperation property, ISymbol target, PurityOracle purity, HashSet<INamedTypeSymbol> collections, CancellationToken cancellationToken)
+    {
+        if (property.Property.SetMethod is not { DeclaringSyntaxReferences.IsEmpty: false } setter || property.SemanticModel is not { } model)
+        {
+            return false;
+        }
+
+        foreach (var reference in setter.DeclaringSyntaxReferences)
+        {
+            if (reference.SyntaxTree != model.SyntaxTree || model.GetOperation(reference.GetSyntax(cancellationToken), cancellationToken) is not { } body)
+            {
+                return false;
+            }
+
+            foreach (var descendant in body.DescendantsAndSelf())
+            {
+                switch (descendant)
+                {
+                    case IInvocationOperation invocation when !purity.IsPure(invocation.TargetMethod):
+                    case IAssignmentOperation { Target: IPropertyReferenceOperation assigned } when RunsSetter(assigned, collections):
+                    case IIncrementOrDecrementOperation { Target: IPropertyReferenceOperation incremented } when RunsSetter(incremented, collections):
+                        return false;
+                }
+
+                if (SymbolEqualityComparer.Default.Equals(ReadSet.RootSymbol(descendant), target))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // A member of an object initializer sets the new object, which code outside cannot see yet.
+    private static bool RunsSetter(IPropertyReferenceOperation property, HashSet<INamedTypeSymbol> collections) =>
+        property.Instance is not IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ImplicitReceiver }
+        && (property.Property.IsIndexer
+            ? !collections.Contains(property.Property.ContainingType.OriginalDefinition)
+            : !IsAutoProperty(property.Property));
 
     // The Add calls of a collection initializer only fill the new framework collection, so they cannot touch the tracked target.
     private static bool FillsNewCollection(IInvocationOperation invocation) =>

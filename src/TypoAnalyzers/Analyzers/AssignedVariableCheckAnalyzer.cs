@@ -72,12 +72,13 @@ public sealed class AssignedVariableCheckAnalyzer : DiagnosticAnalyzer
             return;
         }
 
-        var unwrapped = Unwrap(value);
-        foreach (var operation in value.DescendantsAndSelf())
+        // Only the stored part counts, so the 'nameof(x)' of a 'x ?? throw' guard is not a transformed use of 'x'.
+        var stored = Unwrap(value);
+        foreach (var operation in stored.DescendantsAndSelf())
         {
             if (VariableOf(operation) is not { } source
                 || SymbolEqualityComparer.Default.Equals(source, target)
-                || ReferenceEquals(operation, unwrapped)
+                || ReferenceEquals(operation, stored)
                 || !conditionReads.Contains(source)
                 || !AreSimilar(target, source))
             {
@@ -99,14 +100,35 @@ public sealed class AssignedVariableCheckAnalyzer : DiagnosticAnalyzer
     }
 
     // A plain or converted copy holds the same value as its source, so testing either one is equivalent.
+    // So does 'value ?? throw …', which stores the source itself or assigns nothing at all.
     private static IOperation Unwrap(IOperation value)
     {
-        while (value is IConversionOperation conversion)
+        while (true)
         {
-            value = conversion.Operand;
+            switch (value)
+            {
+                case IConversionOperation conversion:
+                    value = conversion.Operand;
+                    break;
+
+                case ICoalesceOperation coalesce when SkipConversions(coalesce.WhenNull) is IThrowOperation:
+                    value = coalesce.Value;
+                    break;
+
+                default:
+                    return value;
+            }
+        }
+    }
+
+    private static IOperation SkipConversions(IOperation operation)
+    {
+        while (operation is IConversionOperation conversion)
+        {
+            operation = conversion.Operand;
         }
 
-        return value;
+        return operation;
     }
 
     private static ISymbol? VariableOf(IOperation operation) => operation switch
