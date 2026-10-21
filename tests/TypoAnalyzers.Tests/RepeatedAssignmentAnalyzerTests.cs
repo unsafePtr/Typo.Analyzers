@@ -353,6 +353,159 @@ public sealed class RepeatedAssignmentAnalyzerTests
         }
         """);
 
+    // Resetting the cache makes GetHashCode compute the hash again.
+    [Fact]
+    public Task NoDiagnostics_WhenSecondValueCallsAReaderInSource() => Verify.VerifyAsync(
+        """
+        public sealed class Query
+        {
+            private int _hashCode = -1;
+            private int _size;
+
+            public int Size => _size;
+
+            public void Rebuild(int size)
+            {
+                _hashCode = -1;
+                _hashCode = GetHashCode();
+            }
+
+            public void Resize()
+            {
+                _size = 0;
+                _size = Size + 1;
+            }
+
+            public override int GetHashCode()
+            {
+                if (_hashCode != -1)
+                {
+                    return _hashCode;
+                }
+
+                return 42;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task SecondValueCallingAMethodThatDoesNotReadStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class Query
+        {
+            private int _hashCode;
+
+            public void Rebuild(string key)
+            {
+                {|#1:_hashCode|} = -1;
+                {|#0:_hashCode|} = Compute(key) + key.GetHashCode();
+            }
+
+            private static int Compute(string key) => key.Length;
+        }
+        """,
+        Overwritten("_hashCode"));
+
+    [Fact]
+    public Task SecondValueReadingAnotherObjectStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class Person
+        {
+            public string Name { get; set; }
+
+            public void Rename(Person other)
+            {
+                {|#1:Name|} = null;
+                {|#0:Name|} = Format(other);
+            }
+
+            public void Copy(Person other)
+            {
+                {|#3:Name|} = null;
+                {|#2:Name|} = other.Describe();
+            }
+
+            public void Conditional(Person other)
+            {
+                {|#5:Name|} = null;
+                {|#4:Name|} = Trimmed(other);
+            }
+
+            private static string Format(Person p) => p.Name.Trim();
+
+            private static string Trimmed(Person p) => p?.Name;
+
+            private string Describe() => Name + "!";
+        }
+
+        public sealed class Other
+        {
+            private int _size;
+
+            public int Size => _size;
+
+            public void Resize(Other other)
+            {
+                {|#7:_size|} = 0;
+                {|#6:_size|} = new Sized().Size;
+            }
+        }
+
+        public sealed class Sized
+        {
+            private int _size;
+
+            public int Size => _size;
+        }
+        """,
+        Overwritten("Name"),
+        Overwritten("Name", 2, 3),
+        Overwritten("Name", 4, 5),
+        Overwritten("_size", 6, 7));
+
+    // If the constructor throws, the field holds null instead of a disposed object.
+    [Fact]
+    public Task NoDiagnostics_ForResetAfterDispose() => Verify.VerifyAsync(
+        """
+        public sealed class Recorder
+        {
+            private System.IO.MemoryStream _buffer;
+            private System.IO.MemoryStream _other;
+
+            public void Restart()
+            {
+                _buffer?.Dispose();
+                _buffer = null;
+                _buffer = new System.IO.MemoryStream();
+            }
+
+            public void RestartDirect()
+            {
+                _other.Dispose();
+                _other = null;
+                _other = new System.IO.MemoryStream();
+            }
+        }
+        """);
+
+    [Fact]
+    public Task ResetWithoutDisposeStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class Recorder
+        {
+            private System.IO.MemoryStream _buffer;
+            private System.IO.MemoryStream _other;
+
+            public void Restart()
+            {
+                _other?.Dispose();
+                {|#1:_buffer|} = null;
+                {|#0:_buffer|} = new System.IO.MemoryStream();
+            }
+        }
+        """,
+        Overwritten("_buffer"));
+
     [Fact]
     public Task ReceiverReadButNotWrittenBetweenStillReports() => Verify.VerifyAsync(
         """

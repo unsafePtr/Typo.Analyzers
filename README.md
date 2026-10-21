@@ -85,6 +85,7 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - TYPO0011 needs one column whose values all differ, so a two-by-two block such as `a.Stock = a.Sum(x => x.Stock); a.Reserved = a.Sum(x => x.Stock); b.Stock = …; b.Reserved = …` forms no run.
 - TYPO0009 stays silent when the loop variable is used for anything but indexing other collections, as in `(i == 0 ? "" : ",") + Name(items[0])`, because `if (i == 0 && items[0] > 0)` has the same shape on purpose.
 - TYPO0001 does not treat `x.HasValue` and `x != null` as the same test; such pairs are redundant rather than copy-paste mistakes.
+- TYPO0001 leaves a comparison of a local, parameter or field with itself, as in `count < count`, to the compiler's CS1718, which reports exactly these; properties, elements and calls stay TYPO0001's.
 - Swapped arguments matched by parameter name are left to Sonar S2234.
 - TYPO0011 and TYPO0012 scan expression statements and declarations only, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
 - TYPO0008 ignores locals and parameters, which the compiler's unused-assignment check IDE0059 covers.
