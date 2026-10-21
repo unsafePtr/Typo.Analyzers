@@ -459,14 +459,15 @@ public sealed class IdenticalOperandsAnalyzerTests
         """
         public sealed class Options
         {
-            public int Port;
-            public bool BuildIndexes;
+            public int Port { get; set; }
+            public bool BuildIndexes { get; set; }
 
             public bool SameAs(Options r) => Port == r.Port && {|#1:BuildIndexes|} == {|#0:BuildIndexes|};
         }
         """,
         Repeat("BuildIndexes", "BuildIndexes", "=="));
 
+    // A property keeps the comparisons visible: CS1718 covers only locals, parameters and fields.
     [Theory]
     [InlineData("!=", "bool")]
     [InlineData("<", "bool")]
@@ -477,12 +478,52 @@ public sealed class IdenticalOperandsAnalyzerTests
     [InlineData("%", "int")]
     public Task SelfCancellingOperators(string op, string type) => Verify.VerifyAsync(
         $$"""
+        public sealed class Box
+        {
+            public int Count { get; set; }
+        }
+
         public static class C
         {
-            public static {{type}} M(int count) => {|#1:count|} {{op}} {|#0:count|};
+            public static {{type}} M(Box b) => {|#1:b.Count|} {{op}} {|#0:b.Count|};
         }
         """,
-        Repeat("count", "count", op));
+        Repeat("b.Count", "b.Count", op));
+
+    [Fact]
+    public Task SelfDivisionOfParameter() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            public static int M(int count) => {|#1:count|} / {|#0:count|};
+        }
+        """,
+        Repeat("count", "count", "/"));
+
+    [Fact]
+    public Task SelfComparisonTheCompilerReportsIsLeftToIt() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private int _field;
+            private static int s_field;
+
+            public int Property { get; set; }
+
+            public bool M(int parameter, byte small, C other)
+            {
+                var local = parameter;
+                return local == local
+                    | parameter < parameter
+                    | _field >= _field
+                    | s_field != s_field
+                    | other._field <= other._field
+                    | small > small
+                    | {|#1:Property|} == {|#0:Property|};
+            }
+        }
+        """,
+        Repeat("Property", "Property", "=="));
 
     [Fact]
     public Task SelfSubtraction() => Verify.VerifyAsync(
@@ -600,18 +641,23 @@ public sealed class IdenticalOperandsAnalyzerTests
         using System;
         using System.Numerics;
 
+        public sealed class Holder<T>
+        {
+            public T Value { get; set; } = default!;
+        }
+
         public static class C
         {
-            public static bool Integer<T>(T a) where T : IBinaryInteger<T> => {|#1:a|} != {|#0:a|};
+            public static bool Integer<T>(Holder<T> h) where T : IBinaryInteger<T> => {|#1:h.Value|} != {|#0:h.Value|};
 
-            public static bool Reference<T>(T a) where T : class => {|#3:a|} == {|#2:a|};
+            public static bool Reference<T>(Holder<T> h) where T : class => {|#3:h.Value|} == {|#2:h.Value|};
 
-            public static bool Wide(Int128 a) => {|#5:a|} != {|#4:a|};
+            public static bool Wide(Holder<Int128> h) => {|#5:h.Value|} != {|#4:h.Value|};
         }
         """,
-        Repeat("a", "a", "!=", 0, 1),
-        Repeat("a", "a", "==", 2, 3),
-        Repeat("a", "a", "!=", 4, 5));
+        Repeat("h.Value", "h.Value", "!=", 0, 1),
+        Repeat("h.Value", "h.Value", "==", 2, 3),
+        Repeat("h.Value", "h.Value", "!=", 4, 5));
 
     [Fact]
     public Task NoDiagnostics_ForLegitimatePatterns() => Verify.VerifyAsync(

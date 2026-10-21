@@ -60,7 +60,8 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         {
             if (AsAssignment(operations[i]) is not { } first
                 || !IsTracked(first.Target, purity, collections)
-                || ReadSet.RootSymbol(first.Target) is not { } symbol)
+                || ReadSet.RootSymbol(first.Target) is not { } symbol
+                || (i > 0 && ResetsAfterDispose(operations[i - 1], first)))
             {
                 continue;
             }
@@ -76,7 +77,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
 
                 if (OperationEquivalence.AreEquivalent(first.Target, next.Target))
                 {
-                    if (!References(next.Value, symbol, writingConstructor))
+                    if (!References(next.Value, symbol, writingConstructor) && !CallsSourceReader(next.Value, symbol))
                     {
                         context.ReportDiagnostic(Diagnostic.Create(
                             Descriptors.OverwrittenBeforeUse,
@@ -97,6 +98,85 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
             }
         }
     }
+
+    // In 'x?.Dispose(); x = null; x = new Foo();' the null is what stays if the constructor throws, so the reset is observable.
+    private static bool ResetsAfterDispose(IOperation previous, ISimpleAssignmentOperation first)
+    {
+        if (first.Value.ConstantValue is not { HasValue: true, Value: null } || previous is not IExpressionStatementOperation { Operation: var call })
+        {
+            return false;
+        }
+
+        var receiver = call switch
+        {
+            IInvocationOperation { TargetMethod.Name: "Dispose", Arguments.Length: 0, Instance: { } instance } => instance,
+            IConditionalAccessOperation { WhenNotNull: IInvocationOperation { TargetMethod.Name: "Dispose", Arguments.Length: 0 } } access => access.Operation,
+            _ => null,
+        };
+        return receiver is not null && OperationEquivalence.AreEquivalent(SkipConversions(receiver), first.Target);
+    }
+
+    // The second value can read the first one through a method declared in source, as a cached 'GetHashCode' that returns '_hashCode' unless it is -1.
+    // A method counts when it is called on this object or statically, belongs to the target's type and names the target without another receiver.
+    // So 'Name = Format(person)' still reports when 'Format' reads 'person.Name', and a method from a referenced assembly has no source here and never counts.
+    private static bool CallsSourceReader(IOperation value, ISymbol target)
+    {
+        foreach (var descendant in value.DescendantsAndSelf())
+        {
+            var (method, instance) = descendant switch
+            {
+                IInvocationOperation invocation => (invocation.TargetMethod, invocation.Instance),
+                IPropertyReferenceOperation property => (property.Property.GetMethod, property.Instance),
+                _ => (null, null),
+            };
+            if (method is not null
+                && instance is null or IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance }
+                && DerivesFrom(method.ContainingType, target.ContainingType)
+                && NamesTarget(method, target.Name))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool DerivesFrom(INamedTypeSymbol? type, INamedTypeSymbol? baseType)
+    {
+        for (; type is not null && baseType is not null; type = type.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(type.OriginalDefinition, baseType.OriginalDefinition))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool NamesTarget(IMethodSymbol method, string name)
+    {
+        foreach (var reference in method.DeclaringSyntaxReferences)
+        {
+            foreach (var token in reference.GetSyntax().DescendantTokens())
+            {
+                if (token.ValueText == name && token.Parent is IdentifierNameSyntax identifier && !NamesOtherObjectsMember(identifier))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    // 'p.Name' and 'p?.Name' name a member of another object, while 'Name', 'this.Name' and 'base.Name' name this object's.
+    private static bool NamesOtherObjectsMember(IdentifierNameSyntax identifier) => identifier.Parent switch
+    {
+        MemberAccessExpressionSyntax access when access.Name == identifier => access.Expression is not (ThisExpressionSyntax or BaseExpressionSyntax),
+        MemberBindingExpressionSyntax => true,
+        _ => false,
+    };
 
     // The receiver and the indexes say where the target is, as 'p' and 'i' do in 'p.Items[i]'.
     // Once a statement writes one of them, as 'p = p.Next' does, the next write goes to other storage and the first one is not dead.

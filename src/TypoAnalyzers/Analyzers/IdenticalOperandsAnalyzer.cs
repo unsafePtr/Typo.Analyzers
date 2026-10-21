@@ -45,7 +45,8 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
         }
         else if (IsConstantWhenOperandsMatch(binary, context.Compilation)
             && purity.IsFree(binary.LeftOperand)
-            && OperationEquivalence.AreEquivalent(binary.LeftOperand, binary.RightOperand))
+            && OperationEquivalence.AreEquivalent(binary.LeftOperand, binary.RightOperand)
+            && !CompilerWarns(binary))
         {
             Report(context, binary.RightOperand, binary.LeftOperand, OperatorText(binary));
         }
@@ -212,6 +213,31 @@ public sealed class IdenticalOperandsAnalyzer : DiagnosticAnalyzer
 
         // Tests legitimately check reflexivity of user-defined operators, for example 'Assert.True(money == money)'.
         return binary.OperatorMethod is null || Framework.IsFrameworkValue(binary.OperatorMethod.ContainingType);
+    }
+
+    // The compiler's CS1718 already reports a comparison of a local, parameter or field with itself, on every comparison operator and type.
+    // A project that turns CS1718 off, with a pragma or in its settings, has said the comparison is meant.
+    private static bool CompilerWarns(IBinaryOperation binary) =>
+        binary.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
+            or BinaryOperatorKind.LessThan or BinaryOperatorKind.LessThanOrEqual
+            or BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual
+        && IsPlainVariable(binary.LeftOperand);
+
+    private static bool IsPlainVariable(IOperation operand) => SkipImplicitConversions(operand) switch
+    {
+        ILocalReferenceOperation or IParameterReferenceOperation => true,
+        IFieldReferenceOperation { Instance: null or IInstanceReferenceOperation or ILocalReferenceOperation or IParameterReferenceOperation } => true,
+        _ => false,
+    };
+
+    private static IOperation SkipImplicitConversions(IOperation operation)
+    {
+        while (operation is IConversionOperation { IsImplicit: true } conversion)
+        {
+            operation = conversion.Operand;
+        }
+
+        return operation;
     }
 
     // Half, NFloat and later IEEE types are recognised by IFloatingPointIeee754<TSelf>; float and double are named because targets before .NET 7 lack it.
