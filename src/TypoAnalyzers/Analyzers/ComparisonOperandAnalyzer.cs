@@ -82,7 +82,7 @@ public sealed class ComparisonOperandAnalyzer : DiagnosticAnalyzer
                         Descriptors.RepeatedOperandAcrossComparison,
                         term.Syntax.GetLocation(),
                         additionalLocations: [compound.Syntax.GetLocation()],
-                        messageArgs: [term.Syntax.ToString(), compound.Syntax.ToString()]));
+                        messageArgs: [Quote.Of(term.Syntax), Quote.Of(compound.Syntax)]));
                     return true;
                 }
             }

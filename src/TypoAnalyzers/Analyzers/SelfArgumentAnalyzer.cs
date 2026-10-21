@@ -46,7 +46,7 @@ public sealed class SelfArgumentAnalyzer : DiagnosticAnalyzer
             Descriptors.ComparedWithItself,
             second.Syntax.GetLocation(),
             additionalLocations: [first.Syntax.GetLocation()],
-            messageArgs: [second.Syntax.ToString(), method.Name]));
+            messageArgs: [Quote.Of(second.Syntax), method.Name]));
     }
 
     private static bool IsComparison(IMethodSymbol method) => method.Name switch

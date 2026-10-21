@@ -203,6 +203,75 @@ public sealed class IdenticalBranchesAnalyzerTests
         """,
         Verify.Diagnostic(Descriptors.DuplicateBranchBody).WithLocation(0).WithLocation(1).WithArguments("a > 0"));
 
+    // TYPO0006 already reports the last if, so TYPO0007 does not report its else again.
+    [Fact]
+    public Task FinalElseCopyingItsOwnIfIsReportedOnce() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static void Log(string message)
+            {
+            }
+
+            public static void M(int a)
+            {
+                if (a > 0)
+                {
+                    Log("x");
+                }
+                else if ({|#0:a < 0|})
+                {|#1:{
+                    Log("y");
+                }|}
+                else
+                {|#2:{
+                    Log("y");
+                }|}
+            }
+        }
+        """,
+        Identical("if", "a < 0"));
+
+    // The message quotes a wrapped condition on one line, without its line breaks, indentation and comments.
+    [Fact]
+    public Task WrappedConditionIsQuotedOnOneLine() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static void Launch()
+            {
+            }
+
+            private static void Stop()
+            {
+            }
+
+            public static void M(string a, string b)
+            {
+                if (b == @"one
+        two")
+                {
+                    {|#1:Launch();|}
+                }
+                else if (a.Length > 0 && // not empty
+                    a [0] == 'x' /* first */)
+                {
+                    {|#3:Stop();|}
+                }
+                else if (b.Length > 0)
+                {
+                    {|#0:Launch();|}
+                }
+                else
+                {
+                    {|#2:Stop();|}
+                }
+            }
+        }
+        """,
+        Duplicate("b == @\"one two\""),
+        Duplicate("a.Length > 0 && a [0] == 'x'", marker: 2));
+
     [Fact]
     public Task CaseDuplicatesDefaultSection() => Verify.VerifyAsync(
         """

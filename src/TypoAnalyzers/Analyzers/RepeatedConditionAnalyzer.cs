@@ -315,5 +315,5 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
             descriptor,
             condition.Syntax.GetLocation(),
             additionalLocations: [original.Syntax.GetLocation()],
-            messageArgs: extra is null ? [condition.Syntax.ToString()] : [condition.Syntax.ToString(), extra]));
+            messageArgs: extra is null ? [Quote.Of(condition.Syntax)] : [Quote.Of(condition.Syntax), extra]));
 }

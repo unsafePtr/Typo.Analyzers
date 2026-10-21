@@ -254,6 +254,187 @@ public sealed class RepeatedAssignmentAnalyzerTests
         }
         """);
 
+    // The setters between the two writes read the guard flag.
+    [Fact]
+    public Task NoDiagnostics_WhenSettersBetweenMayReadTheTarget() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private bool _isLoadingData;
+            private int _items;
+            private int _selected;
+            private int _last;
+
+            public int Items
+            {
+                get => _items;
+                set
+                {
+                    _items = value;
+                    if (!_isLoadingData)
+                    {
+                        Refresh();
+                    }
+                }
+            }
+
+            public int Selected
+            {
+                get => _selected;
+                set => _selected = _isLoadingData ? _selected : value;
+            }
+
+            private void Refresh()
+            {
+            }
+
+            public void Load(int items)
+            {
+                _isLoadingData = true;
+                Items = items;
+                _isLoadingData = false;
+            }
+
+            public void Increment()
+            {
+                _isLoadingData = true;
+                _last = Selected++;
+                _isLoadingData = false;
+            }
+
+            public void Compound(int delta)
+            {
+                _isLoadingData = true;
+                _last = Selected += delta;
+                _isLoadingData = false;
+            }
+
+            public void SetterFromOtherAssembly(System.Text.StringBuilder builder)
+            {
+                _isLoadingData = true;
+                builder.Length = 0;
+                _isLoadingData = false;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task InertSetterBetweenStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private int _count;
+            private int _size;
+            private int _notified;
+            private int _guarded;
+
+            public event System.EventHandler Changed;
+
+            public int Size
+            {
+                get => _size;
+                set => _size = System.Math.Max(0, value);
+            }
+
+            public int Notified
+            {
+                get => _notified;
+                set
+                {
+                    _notified = value;
+                    Changed?.Invoke(this, System.EventArgs.Empty);
+                }
+            }
+
+            public int Guarded
+            {
+                get => _guarded;
+                set => _guarded = _count > 0 ? value : 0;
+            }
+
+            public int Chained
+            {
+                get => _size;
+                set => Notified = value;
+            }
+
+            public void Inert(int a)
+            {
+                {|#1:_count|} = 0;
+                Size = a;
+                _notified = Size += a;
+                {|#0:_count|} = 1;
+            }
+
+            public void Notifying(int a)
+            {
+                _count = 0;
+                Notified = a;
+                _count = 1;
+            }
+
+            public void ReadingTheTarget(int a)
+            {
+                _count = 0;
+                Guarded = a;
+                _count = 1;
+            }
+
+            public void RunningAnotherSetter(int a)
+            {
+                _count = 0;
+                Chained = a;
+                _count = 1;
+            }
+        }
+        """,
+        Overwritten("_count"));
+
+    [Fact]
+    public Task AutoPropertiesAndInitializersBetweenStillReport() => Verify.VerifyAsync(
+        """
+        public sealed class Holder
+        {
+            public int Size { get; set; }
+            public System.Collections.Generic.List<int> Items { get; set; } = new();
+        }
+
+        public sealed class C
+        {
+            private int _count;
+            private int _other;
+
+            public int X { get; set; }
+
+            public int Other => _other;
+
+            public void AutoBetween(int a)
+            {
+                {|#1:_count|} = 0;
+                X = a;
+                _other = X++;
+                {|#0:_count|} = 1;
+            }
+
+            public void InitializerBetween(Holder holder, int a)
+            {
+                {|#3:_count|} = 0;
+                holder = new Holder { Size = a };
+                {|#2:_count|} = 1;
+            }
+
+            public void IndexerOfListedCollection(System.Collections.Generic.Dictionary<string, int> map, int a)
+            {
+                {|#5:_count|} = 0;
+                map["a"] = a;
+                {|#4:_count|} = 1;
+            }
+        }
+        """,
+        Overwritten("_count"),
+        Overwritten("_count", 2, 3),
+        Overwritten("_count", 4, 5));
+
     [Fact]
     public Task CopyConstructorReadsTheOtherObject() => Verify.VerifyAsync(
         """

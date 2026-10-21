@@ -77,7 +77,7 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
             context.ReportDiagnostic(Diagnostic.Create(
                 Descriptors.ConstantIndexInLoop,
                 constantAccess.Syntax.GetLocation(),
-                messageArgs: [collection.Syntax.ToString(), index.Name, constantAccess.Syntax.ToString()]));
+                messageArgs: [Quote.Of(collection.Syntax), index.Name, Quote.Of(constantAccess.Syntax)]));
         }
     }
 
