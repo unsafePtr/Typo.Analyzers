@@ -70,6 +70,34 @@ public sealed class SimilarRunAnalyzerTests
         """,
         Anomaly("other.Y", "other.Z"));
 
+    // A swizzle names its arguments in order, so its repeats are stated.
+    [Fact]
+    public Task SwizzleReportsOnlyWhenArgumentsBreakItsName() => Verify.VerifyAsync(
+        """
+        public struct Vector4
+        {
+            public float X, Y, Z, W;
+
+            public Vector4(float x, float y, float z, float w)
+            {
+                X = x;
+                Y = y;
+                Z = z;
+                W = w;
+            }
+
+            public Vector4 Yyzw
+            {
+                get => new Vector4(Y, Y, Z, W);
+            }
+
+            public readonly Vector4 Wzzw => new Vector4(W, Z, Z, W);
+
+            public readonly Vector4 Xyzw => new Vector4({|#0:Y|}, Y, Z, W);
+        }
+        """,
+        Anomaly("Y", "X"));
+
     [Fact]
     public Task SourceSdk_LastCallRepeatsSetter() => Verify.VerifyAsync(
         """

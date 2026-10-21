@@ -195,7 +195,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             IObjectCreationOperation creation => creation.Arguments,
             _ => [],
         };
-        if (arguments.Length < 2)
+        if (arguments.Length < 2 || SpellsContainingMember(context.ContainingSymbol, arguments))
         {
             return;
         }
@@ -229,6 +229,49 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         {
             OperandChain.Return(items);
         }
+    }
+
+    // A swizzle such as 'Yyzw => new(Y, Y, Z, W)' names its arguments in order, so the repeated 'Y' is stated, not copied.
+    // A slip such as 'Xyzw => new(Y, Y, Z, W)' no longer spells the name and still reports.
+    private static bool SpellsContainingMember(ISymbol? member, ImmutableArray<IArgumentOperation> arguments)
+    {
+        var name = member is IMethodSymbol { AssociatedSymbol: IPropertySymbol property } ? property.Name : member?.Name;
+        if (name is null)
+        {
+            return false;
+        }
+
+        var offset = 0;
+        foreach (var argument in arguments)
+        {
+            var argumentName = PlainName(argument.Value);
+            if (argumentName is null
+                || offset + argumentName.Length > name.Length
+                || string.Compare(name, offset, argumentName, 0, argumentName.Length, StringComparison.OrdinalIgnoreCase) != 0)
+            {
+                return false;
+            }
+
+            offset += argumentName.Length;
+        }
+
+        return offset == name.Length;
+    }
+
+    private static string? PlainName(IOperation value)
+    {
+        while (value is IConversionOperation conversion)
+        {
+            value = conversion.Operand;
+        }
+
+        return value switch
+        {
+            IFieldReferenceOperation { Instance: null or IInstanceReferenceOperation } field => field.Field.Name,
+            IPropertyReferenceOperation { Instance: null or IInstanceReferenceOperation, Arguments.Length: 0 } property => property.Property.Name,
+            IParameterReferenceOperation parameter => parameter.Parameter.Name,
+            _ => null,
+        };
     }
 
     private static void AnalyzeItems(OperationAnalysisContext context, List<IOperation> items)
