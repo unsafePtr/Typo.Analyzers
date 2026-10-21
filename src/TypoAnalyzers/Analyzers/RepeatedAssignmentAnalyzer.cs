@@ -66,6 +66,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
             }
 
             var writingConstructor = first.Target is IMemberReferenceOperation { Instance: IInstanceReferenceOperation } ? constructor : null;
+            var location = LocationOf(first.Target);
             for (var k = i + 1; k < operations.Length; k++)
             {
                 if (AsAssignment(operations[k]) is not { } next)
@@ -87,12 +88,39 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
                     break;
                 }
 
-                if (References(next, symbol, writingConstructor) || CallsImpure(next, symbol, purity, collections, context.CancellationToken))
+                if (References(next, symbol, writingConstructor)
+                    || CallsImpure(next, symbol, purity, collections, context.CancellationToken)
+                    || Moves(location, next, purity))
                 {
                     break;
                 }
             }
         }
+    }
+
+    // The receiver and the indexes say where the target is, as 'p' and 'i' do in 'p.Items[i]'.
+    // Once a statement writes one of them, as 'p = p.Next' does, the next write goes to other storage and the first one is not dead.
+    private static ReadSet[] LocationOf(IOperation target) => target switch
+    {
+        IArrayElementReferenceOperation element => [ReadSet.Of(element.ArrayReference), .. element.Indices.Select(ReadSet.Of)],
+        IPropertyReferenceOperation property => [.. Operands(property.Instance), .. property.Arguments.Select(argument => ReadSet.Of(argument.Value))],
+        IMemberReferenceOperation member => Operands(member.Instance),
+        _ => [],
+    };
+
+    private static ReadSet[] Operands(IOperation? instance) => instance is null or IInstanceReferenceOperation ? [] : [ReadSet.Of(instance)];
+
+    private static bool Moves(ReadSet[] location, IOperation statement, PurityOracle purity)
+    {
+        foreach (var operand in location)
+        {
+            if (operand.IsWrittenBy(statement, purity))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static ISimpleAssignmentOperation? AsAssignment(IOperation statement) =>

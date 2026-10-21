@@ -74,7 +74,8 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 
 - TYPO0007 skips bodies without a call, object or array creation, assignment or increment, and bodies that are just a `throw`.
 - In TYPO0011 and TYPO0012, numeric literals that are not indexes count as table data and never form a pattern.
-- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;`, `new Size(b.Width, b.Width)` and swizzles `XX => new(X, X)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`; such lines are suppressed one at a time with `#pragma warning disable` or `[SuppressMessage]`.
+- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;` and `new Size(b.Width, b.Width)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`; such lines are suppressed one at a time with `#pragma warning disable` or `[SuppressMessage]`.
+- TYPO0011 and TYPO0012 skip a call whose arguments are plain names that spell the containing member's name in order, as the swizzle `Yyzw => new(Y, Y, Z, W)` does; `Xyzw => new(Y, Y, Z, W)` still fires.
 - TYPO0012 never pairs literal copies, all-lower-case compound names such as `dx` and `dy`, or names where one extends the other, such as `Name` and `DisplayName`.
 - TYPO0012 skips pairs that also differ in a number, framework values such as `float.MaxValue`, `Index.Start` or `Vector2.UnitX`, and names inside an access or call the second line already renamed.
 - TYPO0012 reports `f(x, x)` only when the `y` it should have been is never used, so a deliberate square such as `Multiply(x, x)` stays silent.

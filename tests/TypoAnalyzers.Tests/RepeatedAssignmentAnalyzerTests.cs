@@ -318,6 +318,65 @@ public sealed class RepeatedAssignmentAnalyzerTests
         }
         """);
 
+    // 'segment = segment.Next' moves the second write to another object.
+    [Fact]
+    public Task NoDiagnostics_WhenReceiverOrIndexChangesBetween() => Verify.VerifyAsync(
+        """
+        public sealed class Segment
+        {
+            public bool Processed;
+            public Segment Next;
+        }
+
+        public static class C
+        {
+            public static void Walk(Segment segment)
+            {
+                segment.Processed = true;
+                segment = segment.Next;
+                segment.Processed = true;
+            }
+
+            public static void Fill(int[] values, int i)
+            {
+                values[i] = 1;
+                i = i + 1;
+                values[i] = 2;
+            }
+
+            public static void Swap(int[] values, int[] other)
+            {
+                values[0] = 1;
+                values = other;
+                values[0] = 2;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task ReceiverReadButNotWrittenBetweenStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class Segment
+        {
+            public bool Processed;
+            public Segment Next;
+        }
+
+        public static class C
+        {
+            private static Segment s_next;
+
+            public static Segment Walk(Segment segment)
+            {
+                {|#1:segment.Processed|} = true;
+                s_next = segment.Next;
+                {|#0:segment.Processed|} = true;
+                return s_next;
+            }
+        }
+        """,
+        Overwritten("segment.Processed"));
+
     [Fact]
     public Task InertSetterBetweenStillReports() => Verify.VerifyAsync(
         """
