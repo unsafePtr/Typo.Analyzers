@@ -100,6 +100,9 @@ dotnet build -v:q --no-restore
 dotnet run --project tests/Typo.Tests/Typo.Tests.csproj
 ```
 
+The first restore points git at the hooks in `.githooks`, whose pre-commit hook checks the whitespace of the staged C# files with `dotnet format whitespace`.
+The full `dotnet format --verify-no-changes`, with style and analyzer rules, runs in CI.
+
 Coverage needs the Microsoft.Testing.Platform host, which `dotnet test` provides (xUnit's native runner behind `dotnet run` rejects `--coverage`):
 
 ```powershell

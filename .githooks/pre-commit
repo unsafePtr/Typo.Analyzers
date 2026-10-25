@@ -1,0 +1,23 @@
+#!/bin/sh
+# Checks the whitespace of the staged C# files, the part of the CI format step that needs no build.
+# Style and analyzer rules need a loaded solution, so the full dotnet format check stays in CI.
+# The check reads the working tree copy, so a partly staged file is checked with its unstaged changes.
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.cs')
+if [ -z "$files" ]
+then
+  exit 0
+fi
+
+# One path per line, so a path with a space stays one argument.
+IFS='
+'
+set -f
+
+if ! dotnet format whitespace --folder --verify-no-changes --include $files
+then
+  echo >&2
+  echo "pre-commit: staged C# files are not formatted. Fix them with:" >&2
+  echo "  dotnet format whitespace --folder --include" $files >&2
+  exit 1
+fi
