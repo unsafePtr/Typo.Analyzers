@@ -131,29 +131,16 @@ internal static class OperationEquivalence
 
         var next = depth + 1;
         var hash = (int)pattern.Kind;
-        switch (pattern)
+        return pattern switch
         {
-            case ITypePatternOperation type:
-                return Mix(hash, SymbolEqualityComparer.Default.GetHashCode(type.MatchedType));
-
-            case IConstantPatternOperation constant:
-                return Mix(hash, Hash(constant.Value, next));
-
-            case IRelationalPatternOperation relational:
-                return Mix(Mix(hash, (int)relational.OperatorKind), Hash(relational.Value, next));
-
-            case INegatedPatternOperation negated:
-                return Mix(hash, HashPattern(negated.Pattern, next));
-
-            case IBinaryPatternOperation binary:
-                return Mix(Mix(hash, (int)binary.OperatorKind), unchecked(HashPattern(binary.LeftPattern, next) + HashPattern(binary.RightPattern, next)));
-
-            case IDeclarationPatternOperation declaration:
-                return Mix(hash, SymbolEqualityComparer.Default.GetHashCode(declaration.MatchedType));
-
-            default:
-                return hash;
-        }
+            ITypePatternOperation type => Mix(hash, SymbolEqualityComparer.Default.GetHashCode(type.MatchedType)),
+            IConstantPatternOperation constant => Mix(hash, Hash(constant.Value, next)),
+            IRelationalPatternOperation relational => Mix(Mix(hash, (int)relational.OperatorKind), Hash(relational.Value, next)),
+            INegatedPatternOperation negated => Mix(hash, HashPattern(negated.Pattern, next)),
+            IBinaryPatternOperation binary => Mix(Mix(hash, (int)binary.OperatorKind), unchecked(HashPattern(binary.LeftPattern, next) + HashPattern(binary.RightPattern, next))),
+            IDeclarationPatternOperation declaration => Mix(hash, SymbolEqualityComparer.Default.GetHashCode(declaration.MatchedType)),
+            _ => hash,
+        };
     }
 
     private static int HashArguments(ImmutableArray<IArgumentOperation> arguments, int depth)

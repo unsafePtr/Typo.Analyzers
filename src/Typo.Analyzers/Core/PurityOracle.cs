@@ -99,59 +99,32 @@ internal sealed class PurityOracle
         }
 
         var next = depth + 1;
-        switch (operation)
+        return operation switch
         {
-            case null:
-            case ILiteralOperation:
-            case ILocalReferenceOperation:
-            case IParameterReferenceOperation:
-            case IInstanceReferenceOperation:
-            case IConditionalAccessInstanceOperation:
-            case ITypeOfOperation:
-            case INameOfOperation:
-            case ISizeOfOperation:
-            case IDefaultValueOperation:
-                return true;
-
-            case IFieldReferenceOperation field:
-                return IsFree(field.Instance, next);
-
-            case IPropertyReferenceOperation property:
-                return !IsClockProperty(property.Property) && IsFree(property.Instance, next) && ArgumentsFree(property.Arguments, next);
-
-            case IArrayElementReferenceOperation element:
-                return IsFree(element.ArrayReference, next) && AllFree(element.Indices, next);
-
-            case IInvocationOperation invocation:
-                return IsPure(invocation.TargetMethod) && IsFree(invocation.Instance, next) && ArgumentsFree(invocation.Arguments, next);
-
-            case IConversionOperation conversion:
-                return IsFree(conversion.Operand, next);
-
-            case IUnaryOperation unary:
-                return IsFree(unary.Operand, next);
-
-            case IBinaryOperation binary:
-                return IsFree(binary.LeftOperand, next) && IsFree(binary.RightOperand, next);
-
-            case IIsTypeOperation isType:
-                return IsFree(isType.ValueOperand, next);
-
-            case IIsPatternOperation isPattern:
-                return IsFree(isPattern.Value, next);
-
-            case IConditionalAccessOperation access:
-                return IsFree(access.Operation, next) && IsFree(access.WhenNotNull, next);
-
-            case IConditionalOperation conditional:
-                return IsFree(conditional.Condition, next) && IsFree(conditional.WhenTrue, next) && IsFree(conditional.WhenFalse, next);
-
-            case ICoalesceOperation coalesce:
-                return IsFree(coalesce.Value, next) && IsFree(coalesce.WhenNull, next);
-
-            default:
-                return false;
-        }
+            null
+                or ILiteralOperation
+                or ILocalReferenceOperation
+                or IParameterReferenceOperation
+                or IInstanceReferenceOperation
+                or IConditionalAccessInstanceOperation
+                or ITypeOfOperation
+                or INameOfOperation
+                or ISizeOfOperation
+                or IDefaultValueOperation => true,
+            IFieldReferenceOperation field => IsFree(field.Instance, next),
+            IPropertyReferenceOperation property => !IsClockProperty(property.Property) && IsFree(property.Instance, next) && ArgumentsFree(property.Arguments, next),
+            IArrayElementReferenceOperation element => IsFree(element.ArrayReference, next) && AllFree(element.Indices, next),
+            IInvocationOperation invocation => IsPure(invocation.TargetMethod) && IsFree(invocation.Instance, next) && ArgumentsFree(invocation.Arguments, next),
+            IConversionOperation conversion => IsFree(conversion.Operand, next),
+            IUnaryOperation unary => IsFree(unary.Operand, next),
+            IBinaryOperation binary => IsFree(binary.LeftOperand, next) && IsFree(binary.RightOperand, next),
+            IIsTypeOperation isType => IsFree(isType.ValueOperand, next),
+            IIsPatternOperation isPattern => IsFree(isPattern.Value, next),
+            IConditionalAccessOperation access => IsFree(access.Operation, next) && IsFree(access.WhenNotNull, next),
+            IConditionalOperation conditional => IsFree(conditional.Condition, next) && IsFree(conditional.WhenTrue, next) && IsFree(conditional.WhenFalse, next),
+            ICoalesceOperation coalesce => IsFree(coalesce.Value, next) && IsFree(coalesce.WhenNull, next),
+            _ => false,
+        };
     }
 
     public bool IsPure(IMethodSymbol method)

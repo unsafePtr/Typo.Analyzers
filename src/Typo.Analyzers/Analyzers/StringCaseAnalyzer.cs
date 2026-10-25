@@ -172,26 +172,14 @@ public sealed class StringCaseAnalyzer : DiagnosticAnalyzer
 
     private static Case CaseOf(IOperation? operation, PurityOracle purity, bool followLocals = true)
     {
-        operation = SkipImplicitConversions(operation);
-        switch (operation)
+        return SkipImplicitConversions(operation) switch
         {
-            case IInvocationOperation { TargetMethod.ContainingType.SpecialType: SpecialType.System_String } invocation:
-                return invocation.TargetMethod.Name switch
-                {
-                    "ToLower" or "ToLowerInvariant" => Case.Lower,
-                    "ToUpper" or "ToUpperInvariant" => Case.Upper,
-                    _ => Case.None,
-                };
-
-            case IConditionalAccessOperation access:
-                return CaseOf(access.WhenNotNull, purity, followLocals);
-
-            case ILocalReferenceOperation local when followLocals:
-                return CaseOfLocal(local, purity);
-
-            default:
-                return Case.None;
-        }
+            IInvocationOperation { TargetMethod: { ContainingType.SpecialType: SpecialType.System_String, Name: "ToLower" or "ToLowerInvariant" } } => Case.Lower,
+            IInvocationOperation { TargetMethod: { ContainingType.SpecialType: SpecialType.System_String, Name: "ToUpper" or "ToUpperInvariant" } } => Case.Upper,
+            IConditionalAccessOperation access => CaseOf(access.WhenNotNull, purity, followLocals),
+            ILocalReferenceOperation local when followLocals => CaseOfLocal(local, purity),
+            _ => Case.None,
+        };
     }
 
     // Operations handed to analyzers always carry their semantic model, and a source local has exactly one declaration.

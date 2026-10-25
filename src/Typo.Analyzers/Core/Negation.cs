@@ -59,32 +59,31 @@ internal static class Negation
             return xIsNull != yIsNull && OperationEquivalence.AreEquivalent(xValue, yValue);
         }
 
-        switch (x)
+        return x switch
         {
-            case IBinaryOperation { OperatorMethod: null } left when y is IBinaryOperation { OperatorMethod: null } right:
-                return (Complement(left.OperatorKind) == right.OperatorKind
-                        && (!exhaustive || left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals || (!left.IsLifted && !IsFloatingPoint(left.LeftOperand.Type)))
-                        && ((OperationEquivalence.AreEquivalent(left.LeftOperand, right.LeftOperand) && OperationEquivalence.AreEquivalent(left.RightOperand, right.RightOperand))
-                            || (left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
-                                && OperationEquivalence.AreEquivalent(left.LeftOperand, right.RightOperand)
-                                && OperationEquivalence.AreEquivalent(left.RightOperand, right.LeftOperand))))
-                    || (!exhaustive && AreDisjointRelations(left, right));
+            IBinaryOperation { OperatorMethod: null } left when y is IBinaryOperation { OperatorMethod: null } right =>
+                (Complement(left.OperatorKind) == right.OperatorKind
+                    && (!exhaustive || left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals || (!left.IsLifted && !IsFloatingPoint(left.LeftOperand.Type)))
+                    && ((OperationEquivalence.AreEquivalent(left.LeftOperand, right.LeftOperand) && OperationEquivalence.AreEquivalent(left.RightOperand, right.RightOperand))
+                        || (left.OperatorKind is BinaryOperatorKind.Equals or BinaryOperatorKind.NotEquals
+                            && OperationEquivalence.AreEquivalent(left.LeftOperand, right.RightOperand)
+                            && OperationEquivalence.AreEquivalent(left.RightOperand, right.LeftOperand))))
+                || (!exhaustive && AreDisjointRelations(left, right)),
 
             // 'o is string' binds as a type check while 'o is not string' binds as a negated type pattern.
-            case IIsTypeOperation { IsNegated: false } left when y is IIsPatternOperation { Pattern: INegatedPatternOperation { Pattern: ITypePatternOperation pattern } } right:
-                return SymbolEqualityComparer.Default.Equals(left.TypeOperand, pattern.MatchedType) && OperationEquivalence.AreEquivalent(left.ValueOperand, right.Value);
+            IIsTypeOperation { IsNegated: false } left when y is IIsPatternOperation { Pattern: INegatedPatternOperation { Pattern: ITypePatternOperation pattern } } right =>
+                SymbolEqualityComparer.Default.Equals(left.TypeOperand, pattern.MatchedType) && OperationEquivalence.AreEquivalent(left.ValueOperand, right.Value),
 
-            case IIsPatternOperation { Pattern: INegatedPatternOperation { Pattern: ITypePatternOperation pattern } } left when y is IIsTypeOperation { IsNegated: false } right:
-                return SymbolEqualityComparer.Default.Equals(right.TypeOperand, pattern.MatchedType) && OperationEquivalence.AreEquivalent(right.ValueOperand, left.Value);
+            IIsPatternOperation { Pattern: INegatedPatternOperation { Pattern: ITypePatternOperation pattern } } left when y is IIsTypeOperation { IsNegated: false } right =>
+                SymbolEqualityComparer.Default.Equals(right.TypeOperand, pattern.MatchedType) && OperationEquivalence.AreEquivalent(right.ValueOperand, left.Value),
 
-            case IIsPatternOperation left when y is IIsPatternOperation right:
-                return OperationEquivalence.AreEquivalent(left.Value, right.Value)
-                    && ((left.Pattern is INegatedPatternOperation negatedLeft && OperationEquivalence.PatternsEquivalent(negatedLeft.Pattern, right.Pattern))
-                        || (right.Pattern is INegatedPatternOperation negatedRight && OperationEquivalence.PatternsEquivalent(left.Pattern, negatedRight.Pattern)));
+            IIsPatternOperation left when y is IIsPatternOperation right =>
+                OperationEquivalence.AreEquivalent(left.Value, right.Value)
+                && ((left.Pattern is INegatedPatternOperation negatedLeft && OperationEquivalence.PatternsEquivalent(negatedLeft.Pattern, right.Pattern))
+                    || (right.Pattern is INegatedPatternOperation negatedRight && OperationEquivalence.PatternsEquivalent(left.Pattern, negatedRight.Pattern))),
 
-            default:
-                return false;
-        }
+            _ => false,
+        };
     }
 
     private static bool TryGetNullTest(IOperation operation, out IOperation value, out bool isNull)
