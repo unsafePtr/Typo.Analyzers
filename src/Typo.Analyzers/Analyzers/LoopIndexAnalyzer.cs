@@ -99,23 +99,13 @@ public sealed class LoopIndexAnalyzer : DiagnosticAnalyzer
         _ => false,
     };
 
-    private static IOperation? LoopedCollection(IForLoopOperation loop, IBinaryOperation comparison, ILocalSymbol index)
+    private static IOperation? LoopedCollection(IForLoopOperation loop, IBinaryOperation comparison, ILocalSymbol index) => comparison.OperatorKind switch
     {
-        switch (comparison.OperatorKind)
-        {
-            case BinaryOperatorKind.LessThan or BinaryOperatorKind.LessThanOrEqual when IsLocal(comparison.LeftOperand, index):
-                return CollectionOfBound(comparison.RightOperand);
-
-            case BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual when IsLocal(comparison.RightOperand, index):
-                return CollectionOfBound(comparison.LeftOperand);
-
-            case BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual when IsLocal(comparison.LeftOperand, index):
-                return CollectionOfBound(InitialValue(loop, index));
-
-            default:
-                return null;
-        }
-    }
+        BinaryOperatorKind.LessThan or BinaryOperatorKind.LessThanOrEqual when IsLocal(comparison.LeftOperand, index) => CollectionOfBound(comparison.RightOperand),
+        BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual when IsLocal(comparison.RightOperand, index) => CollectionOfBound(comparison.LeftOperand),
+        BinaryOperatorKind.GreaterThan or BinaryOperatorKind.GreaterThanOrEqual when IsLocal(comparison.LeftOperand, index) => CollectionOfBound(InitialValue(loop, index)),
+        _ => null,
+    };
 
     private static IOperation? CollectionOfBound(IOperation? bound)
     {
