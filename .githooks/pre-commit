@@ -1,0 +1,49 @@
+#!/bin/sh
+# Checks the whitespace of the staged C# files, the part of the CI format step that needs no build.
+# Style and analyzer rules need a loaded solution, so the full dotnet format check stays in CI.
+# The check reads the working tree copy, so a partly staged file is checked with its unstaged changes.
+# A check that cannot run warns and lets the commit through, because CI checks again.
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.cs')
+if [ -z "$files" ]
+then
+  exit 0
+fi
+
+# A git client started from a desktop launcher on Linux or macOS may lack the PATH of a login shell.
+# The install folders of dotnet-install.sh and the macOS installer are tried after PATH.
+dotnet=$(command -v dotnet)
+for candidate in "$DOTNET_ROOT/dotnet" "$HOME/.dotnet/dotnet" /usr/local/share/dotnet/dotnet
+do
+  if [ -z "$dotnet" ] && [ -x "$candidate" ]
+  then
+    dotnet=$candidate
+  fi
+done
+if [ -z "$dotnet" ]
+then
+  echo "pre-commit: dotnet not found, the whitespace check is left to CI." >&2
+  exit 0
+fi
+
+# One path per line, so a path with a space stays one argument.
+IFS='
+'
+set -f
+
+"$dotnet" format whitespace --folder --verify-no-changes --include $files
+status=$?
+
+# dotnet format exits with 2 when --verify-no-changes finds a file to format.
+if [ $status -eq 2 ]
+then
+  echo >&2
+  echo "pre-commit: staged C# files are not formatted. Fix them with:" >&2
+  echo "  dotnet format whitespace --folder --include" $files >&2
+  exit 1
+fi
+if [ $status -ne 0 ]
+then
+  echo "pre-commit: dotnet format failed with exit code $status, the whitespace check is left to CI." >&2
+fi
+exit 0

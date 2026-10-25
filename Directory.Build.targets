@@ -1,0 +1,29 @@
+<Project>
+
+  <!--
+    Points git at the committed hooks in .githooks on the first restore of a clone, so nobody has to install them by hand.
+    CollectPackageReferences runs on every restore, including the design-time restore of Visual Studio.
+    Only the analyzer project runs it, because parallel restores of several projects would race on the lock of .git/config.
+    The test project references the analyzer, so a restore of the tests alone runs it too.
+    It writes the setting only when it differs, and a missing git or a source archive without .git does not fail the build.
+  -->
+  <Target Name="InstallGitHooks"
+          BeforeTargets="Restore;CollectPackageReferences"
+          Condition="'$(MSBuildProjectName)' == 'Typo.Analyzers' and '$(CI)' != 'true' and Exists('$(MSBuildThisFileDirectory).git')">
+    <Exec Command="git config --local core.hooksPath"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          ConsoleToMSBuild="true"
+          IgnoreExitCode="true"
+          StandardOutputImportance="low"
+          StandardErrorImportance="low"
+          ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_TypoGitHooksPath" />
+    </Exec>
+    <Exec Command="git config --local core.hooksPath .githooks"
+          WorkingDirectory="$(MSBuildThisFileDirectory)"
+          Condition="'$(_TypoGitHooksPath)' != '.githooks'"
+          StandardOutputImportance="low"
+          ContinueOnError="true" />
+  </Target>
+
+</Project>
