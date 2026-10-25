@@ -1,4 +1,4 @@
-# TypoAnalyzers
+# Typo.Analyzers
 
 Roslyn analyzers for copy-paste and typo bugs that the common open-source .NET analyzers don't cover.
 
@@ -31,7 +31,7 @@ TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info
 | <a id="typo0013"></a>TYPO0013 | ComparisonOperandAnalyzer | A comparison of a variable with a sum, difference or product that contains the same variable, as in `x == x + 1` or `x < x * y` (Info severity) |
 | <a id="typo0014"></a>TYPO0014 | AssignedVariableCheckAnalyzer | A variable assigned a transformed copy of a similarly named one, followed by an `if` that tests the original, as in `_value = value < 0 ? 0 : value; if (value == 0)` (Info severity) |
 
-The analyzers share the core in `src/TypoAnalyzers/Core`, except IdenticalBranchesAnalyzer, which compares syntax:
+The analyzers share the core in `src/Typo.Analyzers/Core`, except IdenticalBranchesAnalyzer, which compares syntax:
 - `OperationEquivalence`: semantic expression equality, where `a + b` matches `b + a` and `a < b` matches `b > a`, plus a matching hash.
 - `Negation`: one test in different spellings (`x == null`, `x is null`), exact opposites, and tests that exclude each other.
 - `PurityOracle`: which calls and getters are side-effect free (clocks, `Guid.NewGuid` and `Path.GetRandomFileName` are not).
@@ -68,7 +68,7 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - `CultureIndependenceTests` run analyzers under Turkish culture, where `"i".ToUpper()` is `"İ"`, and first assert that the culture really behaves that way.
 - `<InvariantGlobalization>` is deliberately not used: it does not apply to a library loaded by the compiler, and in the test host it would hide exactly the bugs these tests look for.
 
-`-p:WarningLevel=0` hides every analyzer diagnostic, even ones raised to errors in `.editorconfig`, so this repository is never built with it. In consuming projects the same flag hides TypoAnalyzers' own findings.
+`-p:WarningLevel=0` hides every analyzer diagnostic, even ones raised to errors in `.editorconfig`, so this repository is never built with it. In consuming projects the same flag hides Typo.Analyzers' own findings.
 
 ## Known gaps
 
@@ -97,13 +97,13 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 $env:MSBUILDUSESERVER = '1'
 dotnet restore
 dotnet build -v:q --no-restore
-dotnet run --project tests/TypoAnalyzers.Tests/TypoAnalyzers.Tests.csproj
+dotnet run --project tests/Typo.Tests/Typo.Tests.csproj
 ```
 
 Coverage needs the Microsoft.Testing.Platform host, which `dotnet test` provides (xUnit's native runner behind `dotnet run` rejects `--coverage`):
 
 ```powershell
-dotnet test --project tests/TypoAnalyzers.Tests/TypoAnalyzers.Tests.csproj --coverage --coverage-output-format cobertura
+dotnet test --project tests/Typo.Tests/Typo.Tests.csproj --coverage --coverage-output-format cobertura
 ```
 
 The analyzer targets `netstandard2.0` and compiles against Roslyn 5.0.0 so it loads in Visual Studio 2026 and every .NET 10 SDK.
@@ -112,7 +112,7 @@ The analyzer targets `netstandard2.0` and compiles against Roslyn 5.0.0 so it lo
 
 `ci.yml` builds and tests every push and pull request to `main` on Ubuntu and Windows.
 `publish.yml` builds and tests again when a `v*.*.*` tag is pushed, then publishes to nuget.org:
-1. Set `<Version>` in `TypoAnalyzers.csproj`; the workflow fails when the tag does not match it.
+1. Set `<Version>` in `Typo.Analyzers.csproj`; the workflow fails when the tag does not match it.
 2. Move the released rules from `AnalyzerReleases.Unshipped.md` to `AnalyzerReleases.Shipped.md` under a `## Release x.y.z` header.
 3. Push the tag, as in `git tag v0.1.0` and `git push origin v0.1.0`.
 
