@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <RootNamespace>Typo</RootNamespace>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <PackageId>Typo.Analyzers</PackageId>
+    <Version>0.1.0</Version>
+    <Description>Roslyn analyzers that find copy-paste and typo bugs.</Description>
+    <Authors>Nikolay Zdravkov</Authors>
+    <Copyright>Copyright (c) Nikolay Zdravkov</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>roslyn;analyzers;typo;copy-paste;static-analysis;code-quality</PackageTags>
+    <PackageProjectUrl>https://github.com/unsafePtr/TypoAnalyzer</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/unsafePtr/TypoAnalyzer</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <DevelopmentDependency>true</DevelopmentDependency>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <NoPackageAnalysis>true</NoPackageAnalysis>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- Normalizes source paths in CI builds so the shipped assembly is reproducible. -->
+    <!-- It stays out of Directory.Build.props because HelpLinkTests finds the docs through [CallerFilePath], which normalized paths would break. -->
+    <ContinuousIntegrationBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" PrivateAssets="all" />
+    <PackageReference Include="PolySharp" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Typo.Tests" />
+    <None Include="$(OutputPath)$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+    <!-- nuget.org shows a readme's HTML as text, so the package carries PACKAGE.md instead of the README with its rule anchors. -->
+    <None Include="..\..\PACKAGE.md" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
+</Project>

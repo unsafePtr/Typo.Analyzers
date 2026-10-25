@@ -60,4 +60,4 @@ jobs:
 
       # xUnit v3 + Microsoft.Testing.Platform — `dotnet run` is the canonical runner.
       - name: Test
-        run: dotnet run --project tests/TypoAnalyzers.Tests/TypoAnalyzers.Tests.csproj --no-build
+        run: dotnet run --project tests/Typo.Tests/Typo.Tests.csproj --no-build

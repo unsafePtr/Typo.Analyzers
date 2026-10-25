@@ -1,4 +1,4 @@
-# TypoAnalyzers
+# Typo.Analyzers
 
 Roslyn analyzers for copy-paste and typo bugs that the common open-source .NET analyzers don't cover.
 They load in Visual Studio 2026 and every .NET 10 SDK, whatever framework the project targets.
