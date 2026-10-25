@@ -383,6 +383,115 @@ public sealed class RepeatedConditionAnalyzerTests
         Expect(Descriptors.RepeatedNestedCondition, "s_value == null", "true"));
 
     [Fact]
+    public Task DoubleCheckedLockingOnCapturedLocalIsSilent() => Verify.VerifyAsync(
+        """
+        public sealed class Violation
+        {
+            public readonly int StepIndex;
+        }
+
+        public static class C
+        {
+            public static int M(System.Action<System.Action<Violation>> sample, int limit)
+            {
+                var gate = new object();
+                var bestStep = int.MaxValue;
+                sample(violation =>
+                {
+                    if (violation.StepIndex < bestStep)
+                    {
+                        lock (gate)
+                        {
+                            if (violation.StepIndex < bestStep)
+                            {
+                                bestStep = violation.StepIndex;
+                            }
+                        }
+                    }
+                });
+                System.Action<Violation> local = Check;
+                sample(local);
+                return bestStep;
+
+                void Check(Violation violation)
+                {
+                    if (violation.StepIndex < limit)
+                    {
+                        lock (gate)
+                        {
+                            if (violation.StepIndex < limit)
+                            {
+                                limit = violation.StepIndex;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task CapturedLocalWithoutLockStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class Violation
+        {
+            public readonly int StepIndex;
+        }
+
+        public static class C
+        {
+            public static int M(System.Action<System.Action<Violation>> sample)
+            {
+                var bestStep = int.MaxValue;
+                sample(violation =>
+                {
+                    if ({|#1:violation.StepIndex < bestStep|})
+                    {
+                        if ({|#0:violation.StepIndex < bestStep|})
+                        {
+                            bestStep = violation.StepIndex;
+                        }
+                    }
+                });
+                return bestStep;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "violation.StepIndex < bestStep", "true"));
+
+    [Fact]
+    public Task LambdaLocalAcrossLockStillReports() => Verify.VerifyAsync(
+        """
+        public sealed class Violation
+        {
+            public readonly int StepIndex;
+        }
+
+        public static class C
+        {
+            public static void M(System.Action<System.Action<Violation>> sample)
+            {
+                var gate = new object();
+                sample(violation =>
+                {
+                    var bestStep = int.MaxValue;
+                    if ({|#1:violation.StepIndex < bestStep|})
+                    {
+                        lock (gate)
+                        {
+                            if ({|#0:violation.StepIndex < bestStep|})
+                            {
+                                bestStep = violation.StepIndex;
+                            }
+                        }
+                    }
+                });
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "violation.StepIndex < bestStep", "true"));
+
+    [Fact]
     public Task NestedCheckRepeatsConjunct() => Verify.VerifyAsync(
         """
         public static class C
