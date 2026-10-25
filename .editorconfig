@@ -70,6 +70,19 @@ csharp_style_var_for_built_in_types = true:error
 csharp_style_var_when_type_is_apparent = true:error
 csharp_style_var_elsewhere = true:error
 csharp_style_namespace_declarations = file_scoped:error
+# Pattern matching
+# IDE0078: Use pattern matching
+csharp_style_prefer_pattern_matching = true:error
+# IDE0019 and IDE0260: Use pattern matching instead of 'as' with a null check
+csharp_style_pattern_matching_over_as_with_null_check = true:error
+# IDE0020 and IDE0038: Use pattern matching instead of 'is' with a cast
+csharp_style_pattern_matching_over_is_with_cast_check = true:error
+# IDE0083: Use 'not' pattern
+csharp_style_prefer_not_pattern = true:error
+# IDE0170: Use extended property pattern
+csharp_style_prefer_extended_property_pattern = true:error
+# IDE0066: Use switch expression
+csharp_style_prefer_switch_expression = true:error
 csharp_style_prefer_method_group_conversion = true:silent
 csharp_style_prefer_top_level_statements = true:silent
 csharp_style_expression_bodied_lambdas = true:silent
