@@ -17,5 +17,5 @@ updates:
       prefix: build
     ignore:
       # Pinned to the Roslyn that VS 2026 18.0 and the first .NET 10 SDK ship; see Directory.Packages.props.
-      - dependency-name: Microsoft.CodeAnalysis.CSharp
-      - dependency-name: Microsoft.CodeAnalysis.CSharp.Workspaces
+      # Every Roslyn package is ignored, because an update of one, such as Microsoft.CodeAnalysis.Analyzers, also bumps the ignored ones it ships with.
+      - dependency-name: Microsoft.CodeAnalysis*
