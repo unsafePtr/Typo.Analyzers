@@ -169,7 +169,7 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
 
                     // Double-checked locking: another thread may have changed shared state while this one waited for the lock.
                     var reads = ReadSet.Of(part);
-                    if (crossedLock && reads.ReadsState)
+                    if (crossedLock && (reads.ReadsState || EnclosingFunction(outer) is { } function && reads.ReadsCapturedBy(function)))
                     {
                         return false;
                     }
@@ -261,6 +261,23 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
         }
 
         return false;
+    }
+
+    private static IMethodSymbol? EnclosingFunction(IOperation operation)
+    {
+        for (var ancestor = operation.Parent; ancestor is not null; ancestor = ancestor.Parent)
+        {
+            switch (ancestor)
+            {
+                case IAnonymousFunctionOperation lambda:
+                    return lambda.Symbol;
+
+                case ILocalFunctionOperation local:
+                    return local.Symbol;
+            }
+        }
+
+        return null;
     }
 
     private static bool IsChainRoot(IConditionalOperation conditional) =>

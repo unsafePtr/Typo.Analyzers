@@ -83,6 +83,38 @@ internal readonly struct ReadSet
     public bool Contains(ISymbol? symbol) => symbol is not null && _symbols.Contains(symbol);
 
     /// <summary>
+    /// Answers whether the expression reads a local or parameter that the lambda or local function captures from an enclosing scope.
+    /// </summary>
+    /// <remarks>
+    /// A captured variable is shared by every invocation of the function, which may run on several threads at once.
+    /// </remarks>
+    public bool ReadsCapturedBy(IMethodSymbol function)
+    {
+        foreach (var symbol in _symbols)
+        {
+            if (symbol is ILocalSymbol or IParameterSymbol && !IsDeclaredIn(symbol.ContainingSymbol, function))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsDeclaredIn(ISymbol? container, IMethodSymbol function)
+    {
+        for (; container is IMethodSymbol { MethodKind: MethodKind.AnonymousFunction or MethodKind.LocalFunction } method; container = method.ContainingSymbol)
+        {
+            if (SymbolEqualityComparer.Default.Equals(method, function))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Answers whether the region shows evidence of writing something the expression reads.
     /// Unlike <see cref="MayBeChangedBy"/>, it does not count a call merely because the method is not known to be pure.
     /// </summary>
