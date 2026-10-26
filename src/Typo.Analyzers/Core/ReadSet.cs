@@ -12,6 +12,7 @@ namespace Typo.Core;
 /// <see cref="IsWrittenBy"/> needs evidence of a write, so its callers still report across an unknown call.
 /// Writes are matched by symbol regardless of instance, so <c>other.X = 1</c> counts as changing <c>this.X</c>.
 /// Passing a <c>Span&lt;T&gt;</c> or <c>Memory&lt;T&gt;</c> argument writes the array or span it views, as in <c>value.TryFormat(buffer, out _)</c>.
+/// The receiver of a C# 14 extension block member counts as such an argument, since the member gets a copy of the span that views the same memory.
 /// In <see cref="MayBeChangedBy"/>, a call to a method not known to be pure counts as a change when the expression reads state.
 /// State is a mutable field, a property, an array element or the result of a call.
 /// A member of string or a primitive, such as <c>s.Length</c> or <c>string.IsNullOrEmpty(s)</c>, is not state of its own.
@@ -122,6 +123,8 @@ internal readonly struct ReadSet
     /// On a struct, a method that is neither readonly nor known to be pure counts, as <c>Utf8JsonReader.Read</c> moves the reader.
     /// A readonly variable such as an <c>in</c> parameter is copied before such a call, which leaves the variable unchanged.
     /// On a class, an interface or a type parameter, only a method that <see cref="PurityOracle.AdvancesInstance"/> accepts counts.
+    /// A member of a C# 14 extension block changes a struct receiver only when the block's parameter is <c>ref</c>.
+    /// <see cref="Writes"/> counts that call as a write.
     /// </remarks>
     public bool IsWrittenBy(IOperation region, PurityOracle purity)
     {
@@ -151,16 +154,18 @@ internal readonly struct ReadSet
                 return true;
             }
 
+            if (PurityOracle.CalledMethod(operation) is { } method && !purity.IsPure(method))
+            {
+                if (ReadsState || (writtenByClosure ??= IsWrittenByClosure(region, purity)))
+                {
+                    return true;
+                }
+
+                continue;
+            }
+
             switch (operation)
             {
-                case IInvocationOperation invocation when !purity.IsPure(invocation.TargetMethod):
-                    if (ReadsState || (writtenByClosure ??= IsWrittenByClosure(region, purity)))
-                    {
-                        return true;
-                    }
-
-                    break;
-
                 case IAwaitOperation when ReadsState:
                 case IDynamicInvocationOperation:
                     return true;
@@ -178,8 +183,25 @@ internal readonly struct ReadSet
         IPropertyReferenceOperation property => property.Property,
         IArrayElementReferenceOperation element => RootSymbol(element.ArrayReference),
         IConversionOperation conversion => RootSymbol(conversion.Operand),
+        IConditionalAccessInstanceOperation instance => RootSymbol(ConditionalReceiver(instance)),
         _ => null,
     };
+
+    // In 'arr?[0] = 1' the array is a placeholder for the receiver of the null-conditional access around it.
+    // That access holds the placeholder in its WhenNotNull part, not in its receiver.
+    private static IOperation? ConditionalReceiver(IConditionalAccessInstanceOperation instance)
+    {
+        IOperation child = instance;
+        for (var parent = instance.Parent; parent is not null; child = parent, parent = parent.Parent)
+        {
+            if (parent is IConditionalAccessOperation access && ReferenceEquals(access.WhenNotNull, child))
+            {
+                return access.Operation;
+            }
+        }
+
+        return null;
+    }
 
     private bool Writes(IOperation operation, PurityOracle purity)
     {
@@ -208,6 +230,14 @@ internal readonly struct ReadSet
             case IArgumentOperation argument when purity.WritesThrough(argument):
                 return Contains(ViewedSymbol(argument.Value));
 
+            // A member of a C# 14 extension block such as 'extension(ref int value)' gets its receiver as a ref argument.
+            case IInvocationOperation { TargetMethod.ContainingType: { IsExtension: true, ExtensionParameter.RefKind: RefKind.Ref }, Instance: { } receiver }:
+                return receiver is IInstanceReferenceOperation ? _readsThis : Contains(RootSymbol(receiver));
+
+            // The receiver of 'extension<T>(Span<T> span)' is a Span<T> argument.
+            case IInvocationOperation { TargetMethod: { ContainingType.IsExtension: true } member, Instance: { } receiver } when purity.WritesThroughReceiver(member):
+                return Contains(ViewedSymbol(receiver));
+
             default:
                 return false;
         }
@@ -223,7 +253,7 @@ internal readonly struct ReadSet
     };
 
     private bool MutatesReadInstance(IOperation operation, PurityOracle purity) =>
-        operation is IInvocationOperation { TargetMethod: { IsStatic: false } method, Instance: { Type: { } type } instance }
+        operation is IInvocationOperation { TargetMethod: { IsStatic: false, ContainingType.IsExtension: false } method, Instance: { Type: { } type } instance }
         && (type.IsValueType
             ? !method.IsReadOnly && !purity.IsPure(method) && !IsReadOnlyVariable(instance)
             : purity.AdvancesInstance(method))

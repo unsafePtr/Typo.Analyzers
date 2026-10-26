@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Operations;
 using Typo.Core;
 using Xunit;
 
@@ -37,11 +38,39 @@ public sealed class CoreTests
 
         public struct Point { public int X; }
 
+        public sealed class Counter
+        {
+            public int Value;
+            public void operator +=(int amount) => Value += amount;
+            public void operator ++() => Value++;
+        }
+
         public static class Helpers
         {
             public static void Ref(ref int value) => value++;
             public static void Out(out int value) => value = 0;
             public static readonly System.Buffers.SearchValues<char> Vowels = System.Buffers.SearchValues.Create("aeiou");
+
+            extension(Box box)
+            {
+                public int Doubled => box.X * 2;
+                public int Grow() => ++box.X;
+            }
+
+            extension(ref int value)
+            {
+                public void Bump() => value++;
+            }
+
+            extension(int value)
+            {
+                public int Twice() => value * 2;
+            }
+
+            extension(string text)
+            {
+                public string Shout() => text.ToUpperInvariant();
+            }
         }
 
         """;
@@ -168,7 +197,10 @@ public sealed class CoreTests
         { "m.Equals(m)", true },
         { "m.GetHashCode()", true },
         { "m.CompareTo(m)", true },
+        { "a.Doubled", true },
         { "a.M()", false },
+        { "a.Grow()", false },
+        { "s.Shout()", false },
         { "Box.Plain(i)", false },
         { "i++", false },
         { "new Box()", false },
@@ -211,6 +243,18 @@ public sealed class CoreTests
         { "", "a.X > 0", "b.X = 1;", true },
         { "", "arr[0] > 0", "arr[1] = 2;", true },
         { "", "((int[])o)[0] > 0", "((int[])o)[0] = 1;", true },
+        { "", "a.X > 0", "b?.Next?.X = 1;", true },
+        { "", "arr[0] > 0", "arr?[0] = 1;", true },
+        { "", "a.Next.Items[0] > 0", "b?.Next?.Items?[0] = 1;", true },
+        { "", "a.X > 0", "b?.Y = 1;", false },
+        { "var c = new Counter();", "c.Value > 0", "c += 1;", true },
+        { "var c = new Counter();", "a.X > 0", "c += 1;", true },
+        { "var c = new Counter();", "a.X > 0", "c++;", true },
+        { "var c = new Counter();", "i > 0", "++c;", false },
+        { "", "i > 0", "i.Bump();", true },
+        { "", "i > 0", "i.Twice();", false },
+        { "", "a.X > 0", "a.Grow();", true },
+        { "", "a.X > 0", "var doubled = a.Doubled;", false },
         { "", "a.R > 0", "a.M();", false },
         { "Span<char> buf = new char[4];", "a.X > 0", "buf.Trim();", false },
         { "Span<char> buf = new char[4];", "a.X > 0", "buf.Reverse();", true },
@@ -330,6 +374,62 @@ public sealed class CoreTests
         var changed = reads.MayBeChangedBy(model.GetOperation(regionSyntax, TestContext.Current.CancellationToken)!, PurityOracle.For(compilation));
 
         Assert.Equal(expected, changed);
+    }
+
+    // A framework class that moves its extension methods into extension blocks must keep its rules, which judge the receiver like any other parameter.
+    [Theory]
+    [InlineData("s.IsDotted()", true)]
+    [InlineData("s.IsHidden()", true)]
+    [InlineData("readOnly.Holds(1)", true)]
+    [InlineData("span.FillWith(1)", false)]
+    public async Task ExtensionBlockMembersFollowTheRulesOfTheirStaticClass(string call, bool expected)
+    {
+        var (compilation, tree) = await CompileWithoutErrorsAsync(
+            $$"""
+            using System;
+            using System.IO;
+
+            namespace System
+            {
+                public static class MemoryExtensions
+                {
+                    extension<T>(Span<T> span)
+                    {
+                        public void FillWith(T value) => span.Fill(value);
+                    }
+
+                    extension<T>(ReadOnlySpan<T> span)
+                    {
+                        public bool Holds(T value) => false;
+                    }
+                }
+            }
+
+            namespace System.IO
+            {
+                public static class Path
+                {
+                    public static bool IsDotted(this string path) => path.StartsWith('.');
+
+                    extension(string path)
+                    {
+                        public bool IsHidden() => path.StartsWith('.');
+                    }
+                }
+            }
+
+            public static class C
+            {
+                public static void Test(string s, Span<int> span, ReadOnlySpan<int> readOnly)
+                {
+                    {{call}};
+                }
+            }
+            """);
+        var syntax = tree.GetRoot(TestContext.Current.CancellationToken).DescendantNodes().OfType<InvocationExpressionSyntax>().Single(node => node.ToString() == call);
+        var operation = (IInvocationOperation)compilation.GetSemanticModel(tree).GetOperation(syntax, TestContext.Current.CancellationToken)!;
+
+        Assert.Equal(expected, PurityOracle.For(compilation).IsPure(operation.TargetMethod));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
 
 namespace Typo.Core;
 
@@ -17,12 +18,20 @@ internal static class Quote
 {
     private static readonly Regex s_lineBreaks = new(@"[\r\n]+");
 
-    public static string Of(SyntaxNode node)
+    public static string Of(SyntaxNode node) => Of(node, node.Span);
+
+    // The tokens of 'node' inside 'span', for text with no node of its own, as the target 'a?.X' of 'a?.X = 1'.
+    public static string Of(SyntaxNode node, TextSpan span)
     {
         var builder = new StringBuilder();
         var spaceAfter = false;
         foreach (var token in node.DescendantTokens())
         {
+            if (!span.Contains(token.Span))
+            {
+                continue;
+            }
+
             if (builder.Length > 0 && (spaceAfter || token.HasLeadingTrivia))
             {
                 builder.Append(' ');

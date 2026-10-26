@@ -9,7 +9,7 @@ namespace Typo.Core;
 /// Decides whether evaluating an expression twice gives the same value with no observable effect, which is what makes a repeated operand a mistake rather than a deliberate second call.
 /// </summary>
 /// <remarks>
-/// Property getters and operators are assumed pure by convention, as other static analyzers also assume.
+/// Property getters and static operators are assumed pure by convention, as other static analyzers also assume.
 /// Methods count as pure through the rules for object, enums, Nullable&lt;T&gt;, DateTime, primitives and string, or through the type tables below.
 /// The read-only MemoryExtensions overloads and the Equals/CompareTo/GetHashCode convention also count; nothing else does.
 /// Most analyzers consult the oracle, so <see cref="For"/> builds it once per compilation and they all share that instance.
@@ -127,8 +127,27 @@ internal sealed class PurityOracle
         };
     }
 
+    /// <summary>
+    /// The method a call runs, or the C# 14 instance operator behind <c>x += y</c> or <c>x++</c>.
+    /// Such an operator changes <c>x</c> in place, so it counts as a call rather than as an operator.
+    /// </summary>
+    public static IMethodSymbol? CalledMethod(IOperation operation) => operation switch
+    {
+        IInvocationOperation invocation => invocation.TargetMethod,
+        ICompoundAssignmentOperation { OperatorMethod: { IsStatic: false } method } => method,
+        IIncrementOrDecrementOperation { OperatorMethod: { IsStatic: false } method } => method,
+        _ => null,
+    };
+
     public bool IsPure(IMethodSymbol method)
     {
+        // A member of a C# 14 extension block compiles to a static method of the class around the block.
+        // That method takes the receiver as its first parameter, which the MemoryExtensions rule needs to see.
+        if (method.OriginalDefinition.AssociatedExtensionImplementation is { } implementation)
+        {
+            method = implementation;
+        }
+
         var type = method.ContainingType.OriginalDefinition;
         switch (type.SpecialType)
         {
@@ -184,10 +203,16 @@ internal sealed class PurityOracle
     }
 
     // The callee can write the memory a Span<T> or Memory<T> argument views, unless it is a MemoryExtensions reader searching it.
-    public bool WritesThrough(IArgumentOperation argument) =>
-        argument.Parameter is { RefKind: RefKind.None } parameter
+    public bool WritesThrough(IArgumentOperation argument) => argument.Parameter is { } parameter && WritesThrough(parameter);
+
+    // The receiver of a C# 14 extension block member is the first parameter of its implementation, as in IsPure.
+    public bool WritesThroughReceiver(IMethodSymbol member) =>
+        member.OriginalDefinition.AssociatedExtensionImplementation is { Parameters: [var receiver, ..] } && WritesThrough(receiver);
+
+    private bool WritesThrough(IParameterSymbol parameter) =>
+        parameter.RefKind == RefKind.None
         && IsWritable(parameter)
-        && !(argument.Parent is IInvocationOperation { TargetMethod: var method }
+        && !(parameter.ContainingSymbol is IMethodSymbol method
             && SymbolEqualityComparer.Default.Equals(method.ContainingType, _memoryExtensions)
             && IsSearchedSpan(parameter, method));
 

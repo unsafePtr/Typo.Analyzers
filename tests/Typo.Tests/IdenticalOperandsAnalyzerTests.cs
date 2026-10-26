@@ -258,6 +258,181 @@ public sealed class IdenticalOperandsAnalyzerTests
         Repeat("s.Length > 0", "s.Length > 0", "&&", duplicateMarker: 2, originalMarker: 3));
 
     [Fact]
+    public Task ExtensionMemberWithRefReceiverBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        public struct Cursor
+        {
+            public int Position;
+        }
+
+        public static class CursorExtensions
+        {
+            extension(ref Cursor cursor)
+            {
+                public bool Advance() => ++cursor.Position < 10;
+            }
+
+            extension(ref int value)
+            {
+                public bool Bump() => ++value < 10;
+            }
+        }
+
+        public static class C
+        {
+            public static bool Struct(Cursor cursor) => cursor.Position == 0 && cursor.Advance() && cursor.Position == 0;
+
+            public static bool Local(int count) => count == 0 || !count.Bump() || count == 0;
+        }
+        """);
+
+    [Fact]
+    public Task ExtensionMemberWithCopiedReceiverDoesNotHideRepeatedRead() => Verify.VerifyAsync(
+        """
+        public struct Cursor
+        {
+            public int Position;
+        }
+
+        public static class CursorExtensions
+        {
+            extension(Cursor cursor)
+            {
+                public bool IsLast() => cursor.Position == 9;
+            }
+
+            extension(in Cursor cursor)
+            {
+                public bool IsFirst() => cursor.Position == 0;
+            }
+        }
+
+        public static class C
+        {
+            public static bool ByValue(Cursor cursor) => {|#1:cursor.Position == 0|} && cursor.IsLast() && {|#0:cursor.Position == 0|};
+
+            public static bool ByIn(Cursor cursor) => {|#3:cursor.Position == 1|} && cursor.IsFirst() && {|#2:cursor.Position == 1|};
+        }
+        """,
+        Repeat("cursor.Position == 0", "cursor.Position == 0", "&&"),
+        Repeat("cursor.Position == 1", "cursor.Position == 1", "&&", duplicateMarker: 2, originalMarker: 3));
+
+    [Fact]
+    public Task ExtensionMembersOnClassDoNotHideRepeatedRead() => Verify.VerifyAsync(
+        """
+        using System.Collections.Generic;
+
+        public sealed class Box
+        {
+            public int Value;
+            public List<int> Items = new();
+        }
+
+        public static class BoxExtensions
+        {
+            extension(Box box)
+            {
+                public int Doubled => box.Value * 2;
+
+                public bool IsEmpty => box.Items.Count == 0;
+
+                public int Next() => ++box.Value;
+            }
+        }
+
+        public static class C
+        {
+            public static bool Call(Box box) => {|#1:box.Doubled == 2|} && box.Next() > 0 && {|#0:box.Doubled == 2|};
+
+            public static bool Getter(Box box) => {|#3:box.Value == 0|} && box.IsEmpty && {|#2:box.Value == 0|};
+        }
+        """,
+        Repeat("box.Doubled == 2", "box.Doubled == 2", "&&"),
+        Repeat("box.Value == 0", "box.Value == 0", "&&", duplicateMarker: 2, originalMarker: 3));
+
+    [Fact]
+    public Task ExtensionMemberWritingSpanReceiverBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public static class SpanExtensions
+        {
+            extension(Span<int> span)
+            {
+                public bool Shift()
+                {
+                    span[1..].CopyTo(span);
+                    return true;
+                }
+            }
+
+            extension(ReadOnlySpan<int> span)
+            {
+                public bool Peek() => span[0] > 0;
+            }
+        }
+
+        public static class C
+        {
+            public static bool Local(Span<int> buffer) => buffer[0] == 1 && buffer.Shift() && buffer[0] == 1;
+
+            public static bool Viewed(int[] items) => items[0] == 1 && items.AsSpan().Shift() && items[0] == 1;
+
+            public static bool ReadOnly(int[] items) => {|#1:items[0] == 1|} && ((ReadOnlySpan<int>)items).Peek() && {|#0:items[0] == 1|};
+        }
+        """,
+        Repeat("items[0] == 1", "items[0] == 1", "&&"));
+
+    [Fact]
+    public Task InstanceCompoundOperatorBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        public sealed class Counter
+        {
+            public int Value;
+
+            public void operator +=(int amount) => Value += amount;
+
+            public void operator ++() => Value++;
+        }
+
+        public struct Tally
+        {
+            public int Value;
+
+            public void operator +=(int amount) => Value += amount;
+
+            public void operator ++() => Value++;
+        }
+
+        public static class C
+        {
+            public static bool Add(Counter counter) => counter.Value == 0 || (counter += 1) is null || counter.Value == 0;
+
+            public static bool Increment(Counter counter) => counter.Value == 0 || ++counter is null || counter.Value == 0;
+
+            public static bool StructAdd(Tally tally) => tally.Value == 0 || (tally += 1).Value == 1 || tally.Value == 0;
+
+            public static bool StructIncrement(Tally tally) => tally.Value == 0 || (++tally).Value == 1 || tally.Value == 0;
+        }
+        """);
+
+    [Fact]
+    public Task NullConditionalAssignmentBetweenRepeatedReadsIsSilent() => Verify.VerifyAsync(
+        """
+        public sealed class Node
+        {
+            public int X;
+        }
+
+        public static class C
+        {
+            public static bool Field(Node node, Node other) => node.X == 0 || (other?.X = 1) == 1 || node.X == 0;
+
+            public static bool Element(int[] items) => items[0] == 0 || (items?[0] = 1) == 1 || items[0] == 0;
+        }
+        """);
+
+    [Fact]
     public Task SqlSugar_DuplicateTypeTestOnProperty() => Verify.VerifyAsync(
         """
         public sealed class Column { public object Value { get; set; } }

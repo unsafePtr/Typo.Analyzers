@@ -1114,6 +1114,269 @@ public sealed class RepeatedConditionAnalyzerTests
         """);
 
     [Fact]
+    public Task NoDiagnostics_WhenNullConditionalAssignmentChangesCondition() => Verify.VerifyAsync(
+        """
+        public sealed class Node
+        {
+            public int X;
+            public Node Next;
+        }
+
+        public static class C
+        {
+            public static void Field(Node node, Node other)
+            {
+                if (node.X == 0)
+                {
+                    return;
+                }
+
+                other?.Next?.X = 0;
+                if (node.X == 0)
+                {
+                    return;
+                }
+            }
+
+            public static void Element(int[] items)
+            {
+                if (items[0] == 0)
+                {
+                    return;
+                }
+
+                items?[0] = 0;
+                if (items[0] == 0)
+                {
+                    return;
+                }
+            }
+
+            public static void Branch(int[] items)
+            {
+                if (items[1] == 0)
+                {
+                    items?[1] = 1;
+                }
+
+                if (items[1] == 0)
+                {
+                    items?[1] = 2;
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task NoDiagnostics_WhenInstanceCompoundOperatorMayChangeCondition() => Verify.VerifyAsync(
+        """
+        public sealed class Counter
+        {
+            public int Value;
+
+            public void operator +=(int amount) => Value += amount;
+
+            public void operator ++() => Value++;
+        }
+
+        public sealed class Meter
+        {
+            public Counter Hits = new();
+        }
+
+        public static class C
+        {
+            public static void Self(Counter counter)
+            {
+                if (counter.Value == 0)
+                {
+                    return;
+                }
+
+                counter += 1;
+                if (counter.Value == 0)
+                {
+                    return;
+                }
+            }
+
+            public static void Alias(Meter meter, Counter counter)
+            {
+                if (meter.Hits.Value == 0)
+                {
+                    return;
+                }
+
+                counter += 1;
+                if (meter.Hits.Value == 0)
+                {
+                    return;
+                }
+            }
+
+            public static void Increment(Meter meter, Counter counter)
+            {
+                if (meter.Hits.Value == 0)
+                {
+                    counter++;
+                }
+
+                if (meter.Hits.Value == 0)
+                {
+                    return;
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task NoDiagnostics_WhenExtensionMemberMayChangeCondition() => Verify.VerifyAsync(
+        """
+        public sealed class Box
+        {
+            public int Value;
+        }
+
+        public static class Extensions
+        {
+            extension(ref int count)
+            {
+                public void Decrement() => count--;
+            }
+
+            extension(Box box)
+            {
+                public void Bump() => box.Value++;
+            }
+        }
+
+        public static class C
+        {
+            public static void RefReceiver(int count)
+            {
+                if (count > 0)
+                {
+                    return;
+                }
+
+                count.Decrement();
+                if (count > 0)
+                {
+                    return;
+                }
+            }
+
+            public static void Call(Box box)
+            {
+                if (box.Value == 0)
+                {
+                    box.Bump();
+                }
+
+                if (box.Value == 0)
+                {
+                    return;
+                }
+            }
+        }
+        """);
+
+    [Fact]
+    public Task ExtensionGetterOrCopiedReceiverDoesNotHideRepeatedCheck() => Verify.VerifyAsync(
+        """
+        public sealed class Box
+        {
+            public int Value;
+        }
+
+        public static class Extensions
+        {
+            extension(int count)
+            {
+                public int Halved() => count / 2;
+            }
+
+            extension(Box box)
+            {
+                public int Doubled => box.Value * 2;
+            }
+        }
+
+        public static class C
+        {
+            public static int CopiedReceiver(int count)
+            {
+                if ({|#1:count > 0|})
+                {
+                    return 0;
+                }
+
+                var half = count.Halved();
+                if ({|#0:count > 0|})
+                {
+                    return half;
+                }
+
+                return 1;
+            }
+
+            public static int Getter(Box box)
+            {
+                if ({|#3:box.Value == 0|})
+                {
+                    return 0;
+                }
+
+                var doubled = box.Doubled;
+                if ({|#2:box.Value == 0|})
+                {
+                    return doubled;
+                }
+
+                return 1;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedAdjacentCondition, "count > 0"),
+        Verify.Diagnostic(Descriptors.RepeatedAdjacentCondition).WithLocation(2).WithLocation(3).WithArguments("box.Value == 0"));
+
+    [Fact]
+    public Task StaticOperatorDoesNotHideRepeatedCheck() => Verify.VerifyAsync(
+        """
+        public sealed class Counter
+        {
+            public int Value;
+
+            public static Counter operator +(Counter counter, int amount) => new() { Value = counter.Value + amount };
+        }
+
+        public sealed class Meter
+        {
+            public Counter Hits = new();
+        }
+
+        public static class C
+        {
+            public static Counter Add(Meter meter, Counter counter)
+            {
+                if ({|#1:meter.Hits.Value == 0|})
+                {
+                    return counter;
+                }
+
+                counter += 1;
+                if ({|#0:meter.Hits.Value == 0|})
+                {
+                    return counter;
+                }
+
+                return null;
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedAdjacentCondition, "meter.Hits.Value == 0"));
+
+    [Fact]
     public Task NoDiagnostics_WhenLaterRepeatCanSeeAnotherValue() => Verify.VerifyAsync(
         """
         public sealed class Reader
