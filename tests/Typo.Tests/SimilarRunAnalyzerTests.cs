@@ -748,6 +748,129 @@ public sealed class SimilarRunAnalyzerTests
         Pair("other.Width", "other.Height"));
 
     [Fact]
+    public Task Pair_CopyBeforeTheRenamedName() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public sealed class Size
+        {
+            public int Width { get; init; }
+            public int Height { get; init; }
+
+            public bool SameAs(Size other) => other is not null && Width == other.Width && {|#0:Width|} == other.Height;
+        }
+
+        public sealed class Bounds
+        {
+            public int maxX;
+            public int maxY;
+
+            public void Grow(Point p)
+            {
+                maxX = Math.Max(maxX, p.X);
+                {|#1:maxX|} = Math.Max(maxX, p.Y);
+            }
+        }
+
+        public static class Checks
+        {
+            private static void Check(int expected, int actual)
+            {
+            }
+
+            public static void Same(Size expected, Size actual)
+            {
+                Check(expected.Width, actual.Width);
+                Check({|#2:expected.Width|}, actual.Height);
+            }
+        }
+        """,
+        Pair("Width", "Height"),
+        Pair("maxX", "maxY", 1),
+        Pair("expected.Width", "expected.Height", 2));
+
+    [Fact]
+    public Task NoDiagnostics_ForSharedNamesBeforeTheRenamedName() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class Point
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+        }
+
+        public sealed class Totals
+        {
+            public int sum;
+            public int maxX;
+
+            public void Add(Point p)
+            {
+                sum += p.X;
+                sum += p.Y;
+            }
+
+            public void Grow(Point p)
+            {
+                maxX = Math.Max(maxX, p.X);
+                maxX = Math.Max(maxX, p.Y);
+            }
+
+            private static void Assert(bool condition)
+            {
+            }
+
+            public static void Reflexive(System.Collections.Generic.IEqualityComparer<int[]> check, int[] a, int[] b)
+            {
+                Assert(check.Equals(a, a));
+                Assert(check.Equals(a, b));
+            }
+        }
+        """);
+
+    // From OxyPlot, where both are deliberate; nothing in the code proves it, so they report at Info severity.
+    [Fact]
+    public Task Pair_FixedOperandBeforeTheRenamedNameStillReports() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public static class C
+        {
+            public static bool InterpolateByJ(double[,] data, int i0, int i1, int j0, int j1) =>
+                double.IsNaN(data[i0, j0]) || double.IsNaN(data[{|#0:i0|}, j1]);
+
+            public static bool AwayFromMajorTicks(double currentMinor, double previousMinor, double currentMajor, double previousMajor) =>
+                Math.Abs(currentMinor - currentMajor) > 1e-6 && Math.Abs({|#1:currentMinor|} - previousMajor) > 1e-6 && previousMinor < currentMinor;
+        }
+        """,
+        Pair("i0", "i1"),
+        Pair("currentMinor", "previousMinor", 1));
+
+    [Fact]
+    public Task Pair_CopyAfterTheRenamedNameIsReportedFirst() => Verify.VerifyAsync(
+        """
+        public sealed class Size
+        {
+            public int Width { get; set; }
+            public int Height { get; set; }
+
+            public void Add(Size a, Size b)
+            {
+                Width = a.Width + b.Width;
+                Width = a.Height + {|#0:b.Width|};
+            }
+        }
+        """,
+        Pair("b.Width", "b.Height"));
+
+    [Fact]
     public Task Pair_Declarations() => Verify.VerifyAsync(
         """
         using System.Linq;

@@ -556,7 +556,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             }
         }
 
-        if (key < 0 || !HasCopyCandidate(slots, a, b, key + 1, columns)
+        if (key < 0 || !HasCopyCandidate(slots, a, b, columns)
             || !TryRename(NameOf(slots[a + key]), NameOf(slots[b + key]), out var from, out var to))
         {
             return;
@@ -578,35 +578,66 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             }
         }
 
-        // Only columns after the key are candidates, because the copy is the value that should have followed the renamed target, as b.X in 'Y = b.X'.
+        // The copy usually follows the renamed name, as b.X in 'Y = b.X'.
+        // It may also precede it, as Width in 'Width == o.Height' after 'Width == o.Width'; those columns are tried last.
         for (var c = key + 1; c < columns; c++)
         {
-            var copy = slots[b + c];
-            if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation) || IsMemberOfRenamedReceiver(slots, a, b, columns, copy.Operation))
+            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to))
             {
-                continue;
+                return;
             }
-
-            var name = copy.Symbol!.Name;
-            var at = IndexOfWord(name.AsSpan(), from, 0);
-            if (at < 0 || IndexOfWord(name.AsSpan(), from, at + 1) >= 0 || IndexOfWord(name.AsSpan(), to, 0) >= 0)
-            {
-                continue;
-            }
-
-            var span = name.AsSpan(at, from.Length);
-            var replacement = IsAllCaps(span) ? to.ToString().ToUpperInvariant() : Restyle(to.ToString(), span);
-            var expected = name.Substring(0, at) + replacement + name.Substring(at + from.Length);
-
-            // In X = p.Y + p.X; Y = p.Y + p.X both names already appear on both lines, so the second line was edited on purpose.
-            if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected) || !Exists(copy, expected))
-            {
-                continue;
-            }
-
-            Report(context, Descriptors.SimilarPairAnomaly, copy, name, expected);
-            return;
         }
+
+        for (var c = 0; c < key; c++)
+        {
+            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to))
+            {
+                return;
+            }
+        }
+    }
+
+    private static bool TryReportCopy(
+        OperationAnalysisContext context,
+        List<Slot> slots,
+        int a,
+        int b,
+        int columns,
+        int key,
+        int c,
+        ReadOnlySpan<char> from,
+        ReadOnlySpan<char> to)
+    {
+        var copy = slots[b + c];
+        if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation) || IsMemberOfRenamedReceiver(slots, a, b, columns, copy.Operation))
+        {
+            return false;
+        }
+
+        var name = copy.Symbol!.Name;
+        var at = IndexOfWord(name.AsSpan(), from, 0);
+        if (at < 0 || IndexOfWord(name.AsSpan(), from, at + 1) >= 0 || IndexOfWord(name.AsSpan(), to, 0) >= 0)
+        {
+            return false;
+        }
+
+        if (c < key && HoldsKeyValueBefore(slots, a, c, key))
+        {
+            return false;
+        }
+
+        var span = name.AsSpan(at, from.Length);
+        var replacement = IsAllCaps(span) ? to.ToString().ToUpperInvariant() : Restyle(to.ToString(), span);
+        var expected = name.Substring(0, at) + replacement + name.Substring(at + from.Length);
+
+        // In X = p.Y + p.X; Y = p.Y + p.X both names already appear on both lines, so the second line was edited on purpose.
+        if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected) || !Exists(copy, expected))
+        {
+            return false;
+        }
+
+        Report(context, Descriptors.SimilarPairAnomaly, copy, name, expected);
+        return true;
     }
 
     // A member of a renamed receiver keeps its own name, as Row1 does in 'Lerp(matrix1.Row1, matrix2.Row1, amount)', where only the receiver and the parameter carry the changed digit.
@@ -686,9 +717,14 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static bool HasCopyCandidate(List<Slot> slots, int a, int b, int start, int columns)
+    // A first line that holds the key's own value before it, as 'Move(d.X, d.X)' or 'Equals(a, a)' does, is the odd one.
+    // The second line, 'Move(d.X, d.Y)', is then its fix, not a copy.
+    private static bool HoldsKeyValueBefore(List<Slot> slots, int a, int c, int key) =>
+        OperationEquivalence.AreEquivalent(slots[a + c].Operation, slots[a + key].Operation);
+
+    private static bool HasCopyCandidate(List<Slot> slots, int a, int b, int columns)
     {
-        for (var c = start; c < columns; c++)
+        for (var c = 0; c < columns; c++)
         {
             if (IsCopyCandidate(slots[a + c], slots[b + c]))
             {
