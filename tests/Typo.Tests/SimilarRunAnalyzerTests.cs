@@ -1286,6 +1286,32 @@ public sealed class SimilarRunAnalyzerTests
         [.. reported.Select(location => Pair("b.X", "b.Y", location)), Anomaly("b.Y", "b.Z", 5)]);
 
     [Fact]
+    public Task NullConditionalAssignmentsFormPairsAndRuns() => Verify.VerifyAsync(
+        """
+        public sealed class Box
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+
+            public static void Pair(Box target, Box b)
+            {
+                target?.X = b.X;
+                target?.Y = {|#0:b.X|};
+            }
+
+            public static void Run(Box target, Box b)
+            {
+                target?.X = b.X;
+                target?.Y = b.Y;
+                target?.Z = {|#1:b.Y|};
+            }
+        }
+        """,
+        Pair("b.X", "b.Y"),
+        Anomaly("b.Y", "b.Z", 1));
+
+    [Fact]
     public Task Avalonia_LastRadiusCopiesPreviousOne() => Verify.VerifyAsync(
         """
         public readonly struct RelativePoint

@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
+using Microsoft.CodeAnalysis.Text;
 using Typo.Core;
 
 namespace Typo.Analyzers;
@@ -16,7 +17,7 @@ namespace Typo.Analyzers;
 /// Hand-written setters and setters from referenced assemblies may have side effects that make a second write meaningful.
 /// Run between the two writes, such a setter may also read the target, as the setters do around a guard flag in <c>_loading = true; Items = items; _loading = false;</c>, so it ends the run like an impure call.
 /// Only a setter in the same file that is provably inert does not end it.
-/// Only a run of plain assignment statements is scanned; any other statement ends it.
+/// Only a run of plain assignment statements, null-conditional ones included, is scanned; any other statement ends it.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
@@ -60,6 +61,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         {
             if (AsAssignment(operations[i]) is not { } first
                 || !IsTracked(first.Target, purity, collections)
+                || !ReceiversFree(operations[i], purity)
                 || ReadSet.RootSymbol(first.Target) is not { } symbol
                 || (i > 0 && ResetsAfterDispose(operations[i - 1], first)))
             {
@@ -67,7 +69,7 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
             }
 
             var writingConstructor = first.Target is IMemberReferenceOperation { Instance: IInstanceReferenceOperation } ? constructor : null;
-            var location = LocationOf(first.Target);
+            var location = LocationOf(operations[i], first.Target);
             for (var k = i + 1; k < operations.Length; k++)
             {
                 if (AsAssignment(operations[k]) is not { } next)
@@ -75,23 +77,24 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
                     break;
                 }
 
-                if (OperationEquivalence.AreEquivalent(first.Target, next.Target))
+                if (SameTarget(operations[i], operations[k]))
                 {
                     if (!References(next.Value, symbol, writingConstructor) && !CallsSourceReader(next.Value, symbol))
                     {
+                        var overwrite = TargetOf(operations[k], next);
                         context.ReportDiagnostic(Diagnostic.Create(
                             Descriptors.OverwrittenBeforeUse,
-                            next.Target.Syntax.GetLocation(),
-                            additionalLocations: [first.Target.Syntax.GetLocation()],
-                            messageArgs: [Quote.Of(next.Target.Syntax)]));
+                            overwrite,
+                            additionalLocations: [TargetOf(operations[i], first)],
+                            messageArgs: [Quote.Of(operations[k].Syntax, overwrite.SourceSpan)]));
                     }
 
                     break;
                 }
 
-                if (References(next, symbol, writingConstructor)
-                    || CallsImpure(next, symbol, purity, collections, context.CancellationToken)
-                    || Moves(location, next, purity))
+                if (References(operations[k], symbol, writingConstructor)
+                    || CallsImpure(operations[k], symbol, purity, collections, context.CancellationToken)
+                    || Moves(location, operations[k], purity))
                 {
                     break;
                 }
@@ -180,6 +183,18 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
 
     // The receiver and the indexes say where the target is, as 'p' and 'i' do in 'p.Items[i]'.
     // Once a statement writes one of them, as 'p = p.Next' does, the next write goes to other storage and the first one is not dead.
+    // In 'p?.Items[i] = 1' the target holds a placeholder for 'p', so the receivers come from the null-conditional accesses.
+    private static ReadSet[] LocationOf(IOperation statement, IOperation target)
+    {
+        var receivers = new List<ReadSet>();
+        for (var operation = ((IExpressionStatementOperation)statement).Operation; operation is IConditionalAccessOperation access; operation = access.WhenNotNull)
+        {
+            receivers.Add(ReadSet.Of(access.Operation));
+        }
+
+        return [.. receivers, .. LocationOf(target)];
+    }
+
     private static ReadSet[] LocationOf(IOperation target) => target switch
     {
         IArrayElementReferenceOperation element => [ReadSet.Of(element.ArrayReference), .. element.Indices.Select(ReadSet.Of)],
@@ -203,8 +218,64 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    private static ISimpleAssignmentOperation? AsAssignment(IOperation statement) =>
-        statement is IExpressionStatementOperation { Operation: ISimpleAssignmentOperation { IsRef: false } assignment } ? assignment : null;
+    // 'a?.X = 1' and 'a?.B?.X = 1' wrap the assignment in one null-conditional access per '?'.
+    // The assignment sits at the end of the WhenNotNull chain.
+    private static ISimpleAssignmentOperation? AsAssignment(IOperation statement)
+    {
+        if (statement is not IExpressionStatementOperation { Operation: var operation })
+        {
+            return null;
+        }
+
+        while (operation is IConditionalAccessOperation access)
+        {
+            operation = access.WhenNotNull;
+        }
+
+        return operation is ISimpleAssignmentOperation { IsRef: false } assignment ? assignment : null;
+    }
+
+    private static bool ReceiversFree(IOperation statement, PurityOracle purity)
+    {
+        for (var operation = ((IExpressionStatementOperation)statement).Operation; operation is IConditionalAccessOperation access; operation = access.WhenNotNull)
+        {
+            if (!purity.IsFree(access.Operation))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Within a null-conditional access the target only holds a placeholder for the receiver.
+    // The receivers are therefore compared level by level.
+    private static bool SameTarget(IOperation first, IOperation next)
+    {
+        var x = ((IExpressionStatementOperation)first).Operation;
+        var y = ((IExpressionStatementOperation)next).Operation;
+        while (x is IConditionalAccessOperation xAccess && y is IConditionalAccessOperation yAccess)
+        {
+            if (!OperationEquivalence.AreEquivalent(xAccess.Operation, yAccess.Operation))
+            {
+                return false;
+            }
+
+            x = xAccess.WhenNotNull;
+            y = yAccess.WhenNotNull;
+        }
+
+        return x is ISimpleAssignmentOperation xAssignment
+            && y is ISimpleAssignmentOperation yAssignment
+            && OperationEquivalence.AreEquivalent(xAssignment.Target, yAssignment.Target);
+    }
+
+    // The target of 'a?.X = 1' is only '.X' in the syntax tree, so the reported span starts at the receiver.
+    private static Location TargetOf(IOperation statement, ISimpleAssignmentOperation assignment)
+    {
+        var write = ((IExpressionStatementOperation)statement).Operation.Syntax;
+        return Location.Create(write.SyntaxTree, TextSpan.FromBounds(write.SpanStart, assignment.Target.Syntax.Span.End));
+    }
 
     private static bool IsTracked(IOperation target, PurityOracle purity, HashSet<INamedTypeSymbol> collections) => target switch
     {
@@ -265,9 +336,13 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
     {
         foreach (var descendant in operation.DescendantsAndSelf())
         {
+            if (PurityOracle.CalledMethod(descendant) is { } method && !purity.IsPure(method) && !FillsNewCollection(descendant))
+            {
+                return true;
+            }
+
             switch (descendant)
             {
-                case IInvocationOperation invocation when !purity.IsPure(invocation.TargetMethod) && !FillsNewCollection(invocation):
                 case IAssignmentOperation { Target: IPropertyReferenceOperation assigned }
                     when RunsSetter(assigned, collections) && !IsInert(assigned, target, purity, collections, cancellationToken):
                 case IIncrementOrDecrementOperation { Target: IPropertyReferenceOperation incremented }
@@ -297,9 +372,13 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
 
             foreach (var descendant in body.DescendantsAndSelf())
             {
+                if (PurityOracle.CalledMethod(descendant) is { } method && !purity.IsPure(method))
+                {
+                    return false;
+                }
+
                 switch (descendant)
                 {
-                    case IInvocationOperation invocation when !purity.IsPure(invocation.TargetMethod):
                     case IAssignmentOperation { Target: IPropertyReferenceOperation assigned } when RunsSetter(assigned, collections):
                     case IIncrementOrDecrementOperation { Target: IPropertyReferenceOperation incremented } when RunsSetter(incremented, collections):
                         return false;
@@ -323,8 +402,8 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
             : !IsAutoProperty(property.Property));
 
     // The Add calls of a collection initializer only fill the new framework collection, so they cannot touch the tracked target.
-    private static bool FillsNewCollection(IInvocationOperation invocation) =>
-        invocation.Instance is IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ImplicitReceiver }
+    private static bool FillsNewCollection(IOperation call) =>
+        call is IInvocationOperation { Instance: IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ImplicitReceiver } } invocation
         && Framework.IsFrameworkValue(invocation.TargetMethod.ContainingType);
 
     private static IOperation SkipConversions(IOperation operation)

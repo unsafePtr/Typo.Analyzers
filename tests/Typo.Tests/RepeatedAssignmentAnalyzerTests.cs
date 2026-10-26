@@ -117,6 +117,161 @@ public sealed class RepeatedAssignmentAnalyzerTests
         Overwritten("Total"));
 
     [Fact]
+    public Task NullConditionalTargetWrittenTwice() => Verify.VerifyAsync(
+        """
+        using System.Collections.Generic;
+
+        public sealed class Node
+        {
+            public int X;
+            public Node Next;
+            public int Size { get; set; }
+        }
+
+        public static class C
+        {
+            public static void Field(Node node)
+            {
+                {|#1:node?.X|} = 1;
+                {|#0:node?.X|} = 2;
+            }
+
+            public static void Nested(Node node)
+            {
+                {|#3:node?.Next?.X|} = 1;
+                {|#2:node?.Next?.X|} = 2;
+            }
+
+            public static void Element(int[] items, Dictionary<string, int> map)
+            {
+                {|#5:items?[0]|} = 1;
+                {|#4:items?[0]|} = 2;
+                {|#7:map?["a"]|} = 1;
+                {|#6:map?["a"]|} = 2;
+            }
+
+            public static void AutoProperty(Node node, int a, int b)
+            {
+                {|#9:node?.Size|} = a;
+                node?.X = a;
+                {|#8:node?.Size|} = b;
+            }
+        }
+        """,
+        Overwritten("node?.X"),
+        Overwritten("node?.Next?.X", 2, 3),
+        Overwritten("items?[0]", 4, 5),
+        Overwritten("map?[\"a\"]", 6, 7),
+        Overwritten("node?.Size", 8, 9));
+
+    [Fact]
+    public Task NoDiagnostics_ForNullConditionalWritesThatMayDiffer() => Verify.VerifyAsync(
+        """
+        public sealed class Node
+        {
+            public int X;
+            public int Y;
+            public Node Next;
+        }
+
+        public static class C
+        {
+            public static void Receivers(Node a, Node b)
+            {
+                a?.X = 1;
+                b?.X = 2;
+            }
+
+            public static void ReceiverMoves(Node node)
+            {
+                node?.X = 1;
+                node = node.Next;
+                node?.X = 2;
+            }
+
+            public static void ReadBetween(Node node)
+            {
+                node?.X = 1;
+                node?.Y = node.X;
+                node?.X = 2;
+            }
+
+            public static void ValueReadsTarget(Node node)
+            {
+                node?.X = 1;
+                node?.X = node.X + 1;
+            }
+
+            public static void ImpureReceiver()
+            {
+                Find()?.X = 1;
+                Find()?.X = 2;
+            }
+
+            private static Node Find() => null;
+        }
+        """);
+
+    [Fact]
+    public Task NoDiagnostics_WhenInstanceCompoundOperatorMayReadTheTarget() => Verify.VerifyAsync(
+        """
+        public sealed class Owner
+        {
+            private int _count;
+            private int _total;
+            private Counter _counter;
+
+            public Owner() => _counter = new Counter(this);
+
+            public int Count => _count;
+
+            public void OperatorBetween()
+            {
+                _count = 0;
+                _total = (_counter += 1).Value;
+                _count = 1;
+            }
+        }
+
+        public sealed class Counter(Owner owner)
+        {
+            public int Value;
+
+            public void operator +=(int amount) => Value += amount + owner.Count;
+        }
+        """);
+
+    [Fact]
+    public Task NoDiagnostics_WhenSetterBetweenRunsInstanceCompoundOperator() => Verify.VerifyAsync(
+        """
+        public sealed class Owner
+        {
+            private bool _loading;
+            private Counter _counter;
+
+            public Owner() => _counter = new Counter(this);
+
+            public bool Loading => _loading;
+
+            public int Items { set => _counter += value; }
+
+            public void Load(int items)
+            {
+                _loading = true;
+                Items = items;
+                _loading = false;
+            }
+        }
+
+        public sealed class Counter(Owner owner)
+        {
+            public int Value;
+
+            public void operator +=(int amount) => Value += owner.Loading ? 0 : amount;
+        }
+        """);
+
+    [Fact]
     public Task GetOnlyPropertyAssignedTwiceInConstructor() => Verify.VerifyAsync(
         """
         public sealed class C
