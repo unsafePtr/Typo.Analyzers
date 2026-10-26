@@ -74,11 +74,12 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 
 - TYPO0007 skips bodies without a call, object or array creation, assignment or increment, and bodies that are just a `throw`.
 - In TYPO0011 and TYPO0012, numeric literals that are not indexes count as table data and never form a pattern.
-- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;` and `new Size(b.Width, b.Width)`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`; such lines are suppressed one at a time with `#pragma warning disable` or `[SuppressMessage]`.
+- Deliberate copies still fire: TYPO0012 on `Start = c.Start; End = c.Start;`, on `new Size(b.Width, b.Width)` and on a fixed operand kept while the name after it is renamed, as `i0` in `IsNaN(data[i0, j0]) || IsNaN(data[i0, j1])`, and TYPO0011 on symmetric matrices `new M(m.M11, m.M12, m.M12, m.M22)`; such lines are suppressed one at a time with `#pragma warning disable` or `[SuppressMessage]`.
 - TYPO0011 and TYPO0012 skip a call whose arguments are plain names that spell the containing member's name in order, as the swizzle `Yyzw => new(Y, Y, Z, W)` does; `Xyzw => new(Y, Y, Z, W)` still fires.
 - TYPO0012 never pairs literal copies, all-lower-case compound names such as `dx` and `dy`, or names where one extends the other, such as `Name` and `DisplayName`.
 - TYPO0012 skips pairs that also differ in a number, framework values such as `float.MaxValue`, `Index.Start` or `Vector2.UnitX`, and names inside an access or call the second line already renamed.
 - TYPO0012 reports `f(x, x)` only when the `y` it should have been is never used, so a deliberate square such as `Multiply(x, x)` stays silent.
+- TYPO0012 does not report the second of two lines when the first holds one value twice, as in `Move(d.X, d.X); Move(d.X, d.Y)`, because the second line is then the first one's fix.
 - Declarations that read a local declared earlier in the same run, as in `f8 = f4 * f4; f12 = f8 * f4`, are steps of one computation and never form a run.
 - A shared receiver whose other names were renamed still fires, as in `LoadUnsafe(ref yRef, x.Length - n)` after a check that both spans have equal length.
 - Switch sections are not scanned for runs.
