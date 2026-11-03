@@ -1,6 +1,7 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Operations;
+using Typo.Analyzers;
 using Typo.Core;
 using Xunit;
 
@@ -91,6 +92,23 @@ public sealed class CoreTests
         { "arr.Length", "arr.Length", true },
         { "i + j", "j + i", true },
         { "i - j", "j - i", false },
+        { "d * i", "i * d", true },
+        { "x * y", "y * x", true },
+        { "s == t", "t == s", true },
+        { "s + t", "s + t", true },
+        { "s + t", "t + s", false },
+        { "s + i", "i + s", false },
+        { "f + g", "f + g", true },
+        { "f + g", "g + f", false },
+        { "f - g", "g - f", false },
+        { "u + v", "v + u", true },
+        { "u * v", "v * u", true },
+        { "p4 + q4", "q4 + p4", true },
+        { "p4 * q4", "p4 * q4", true },
+        { "p4 * q4", "q4 * p4", false },
+        { "p3 * q3", "q3 * p3", false },
+        { "p + q", "q + p", true },
+        { "p * q", "q * p", false },
         { "i == j", "j == i", true },
         { "i < j", "j > i", true },
         { "i <= j", "j >= i", true },
@@ -284,6 +302,45 @@ public sealed class CoreTests
         }
     }
 
+    // Swapping the operands of these operators changes the value; the commutator 'p * q - q * p' of two matrices is real code.
+    [Theory]
+    [InlineData("string s, string t", "s + t == t + s")]
+    [InlineData("string s, int i", "s + i == i + s")]
+    [InlineData("Action f, Action g", "f + g == g + f")]
+    [InlineData("Action f, Action g", "f - g == g - f")]
+    [InlineData("Matrix3x2 p, Matrix3x2 q", "p * q - q * p")]
+    [InlineData("Matrix4x4 p, Matrix4x4 q", "p * q - q * p")]
+    [InlineData("Quaternion p, Quaternion q", "p * q - q * p")]
+    public Task NonCommutingOperatorsInSwappedOrderAreNotIdenticalOperands(string parameters, string expression) =>
+        Verifier<IdenticalOperandsAnalyzer>.VerifyAsync(Method(parameters, expression));
+
+    [Theory]
+    [InlineData("int i, int j", "i + j", "==", "j + i")]
+    [InlineData("decimal x, decimal y", "x * y", "==", "y * x")]
+    [InlineData("Vector3 u, Vector3 v", "u * v", "-", "v * u")]
+    [InlineData("Matrix4x4 p, Matrix4x4 q", "p + q", "-", "q + p")]
+    [InlineData("Quaternion p, Quaternion q", "p + q", "-", "q + p")]
+    public Task CommutingOperatorsInSwappedOrderAreIdenticalOperands(string parameters, string left, string op, string right) =>
+        Verifier<IdenticalOperandsAnalyzer>.VerifyAsync(
+            Method(parameters, $"{{|#1:{left}|}} {op} ({{|#0:{right}|}})"),
+            Verifier<IdenticalOperandsAnalyzer>.Diagnostic(Descriptors.IdenticalSubExpressions).WithLocation(0).WithLocation(1).WithArguments(right, left, op));
+
+    // Real code moves a line break across a closing tag this way.
+    [Fact]
+    public Task ConcatenationsInSwappedOrderAreDifferentArguments() => Verifier<SelfArgumentAnalyzer>.VerifyAsync(
+        Method("string text", """text.Replace(Environment.NewLine + "</i>", "</i>" + Environment.NewLine)"""));
+
+    // Real code compares a formula with itself instead of with the one read back from the workbook.
+    [Fact]
+    public Task ConcatenationsInTheSameOrderAreTheSameArgument() => Verifier<SelfArgumentAnalyzer>.VerifyAsync(
+        Method("string function", """({|#1:function + "(A2:A3)"|}).Equals({|#0:function + "(A2:A3)"|})"""),
+        Verifier<SelfArgumentAnalyzer>.Diagnostic(Descriptors.ComparedWithItself).WithLocation(0).WithLocation(1).WithArguments("function + \"(A2:A3)\"", "Equals"));
+
+    [Fact]
+    public Task SumsInSwappedOrderAreTheSameArgument() => Verifier<SelfArgumentAnalyzer>.VerifyAsync(
+        Method("int i, int j", "Math.Max({|#1:i + j|}, {|#0:j + i|})"),
+        Verifier<SelfArgumentAnalyzer>.Diagnostic(Descriptors.ComparedWithItself).WithLocation(0).WithLocation(1).WithArguments("j + i", "Max"));
+
     [Theory]
     [MemberData(nameof(SameTestCases))]
     public async Task SameTest(string first, string second, bool expected)
@@ -462,7 +519,9 @@ public sealed class CoreTests
             public static class C
             {
                 public static void Test(
-                    Box a, Box b, int i, int j, int? n, double d, double? dn, string s, object o, int[] arr, char[] chars, Span<char> buf, List<int> list, Stopwatch sw, Money m, DayOfWeek day, DateTime dt)
+                    Box a, Box b, int i, int j, int? n, double d, double? dn, string s, object o, int[] arr, char[] chars, Span<char> buf, List<int> list, Stopwatch sw, Money m, DayOfWeek day, DateTime dt,
+                    string t, Action f, Action g, decimal x, decimal y, System.Numerics.Vector3 u, System.Numerics.Vector3 v,
+                    System.Numerics.Matrix3x2 p3, System.Numerics.Matrix3x2 q3, System.Numerics.Matrix4x4 p4, System.Numerics.Matrix4x4 q4, System.Numerics.Quaternion p, System.Numerics.Quaternion q)
                 {
                     var first = {{first}};
                     var second = {{second}};
@@ -481,6 +540,16 @@ public sealed class CoreTests
             model.GetOperation(declarators["first"].Initializer!.Value, TestContext.Current.CancellationToken)!,
             model.GetOperation(declarators["second"].Initializer!.Value, TestContext.Current.CancellationToken)!);
     }
+
+    private static string Method(string parameters, string expression) => $$"""
+        using System;
+        using System.Numerics;
+
+        public static class C
+        {
+            public static object M({{parameters}}) => {{expression}};
+        }
+        """;
 
     // A typo in a test snippet would otherwise silently test error recovery instead of the intended construct.
     private static async Task<(Compilation Compilation, SyntaxTree Tree)> CompileWithoutErrorsAsync(string source)

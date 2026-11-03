@@ -90,7 +90,7 @@ internal static class OperationEquivalence
                 }
 
                 hash = Mix(hash, (int)kind);
-                return IsCommutative(kind) ? Mix(hash, unchecked(left + right)) : Mix(Mix(hash, left), right);
+                return IsCommutative(binary) ? Mix(hash, unchecked(left + right)) : Mix(Mix(hash, left), right);
             }
 
             case IUnaryOperation unary:
@@ -219,7 +219,7 @@ internal static class OperationEquivalence
                 if (binary.OperatorKind == other.OperatorKind && SymbolEqualityComparer.Default.Equals(binary.OperatorMethod, other.OperatorMethod))
                 {
                     return (AreEquivalent(binary.LeftOperand, other.LeftOperand, next) && AreEquivalent(binary.RightOperand, other.RightOperand, next))
-                        || (IsCommutative(binary.OperatorKind) && AreEquivalent(binary.LeftOperand, other.RightOperand, next) && AreEquivalent(binary.RightOperand, other.LeftOperand, next));
+                        || (IsCommutative(binary) && AreEquivalent(binary.LeftOperand, other.RightOperand, next) && AreEquivalent(binary.RightOperand, other.LeftOperand, next));
                 }
 
                 return Mirror(binary.OperatorKind) is var mirrored and not BinaryOperatorKind.None
@@ -388,16 +388,34 @@ internal static class OperationEquivalence
         return true;
     }
 
-    private static bool IsCommutative(BinaryOperatorKind kind) => kind
-        is BinaryOperatorKind.Add
-        or BinaryOperatorKind.Multiply
-        or BinaryOperatorKind.And
-        or BinaryOperatorKind.Or
-        or BinaryOperatorKind.ExclusiveOr
-        or BinaryOperatorKind.ConditionalAnd
-        or BinaryOperatorKind.ConditionalOr
-        or BinaryOperatorKind.Equals
-        or BinaryOperatorKind.NotEquals;
+    /// <summary>
+    /// Whether swapping the operands keeps the value, judged by the operator kind and the types it works on.
+    /// </summary>
+    /// <remarks>
+    /// String concatenation and delegate combination bind as built-in addition, but swapping their operands changes the text or the call order.
+    /// The matrix and quaternion products of System.Numerics do not commute; their sums and the element-wise vector operators do.
+    /// Any other user-defined operator is taken to commute like the built-in operator of its kind, because the analyzer cannot show that it does not.
+    /// Equivalent operations bind the same operator with the same result type, so the hash and the equality agree on the answer.
+    /// </remarks>
+    private static bool IsCommutative(IBinaryOperation binary) => binary.OperatorKind switch
+    {
+        BinaryOperatorKind.Add => binary.OperatorMethod is not null || binary.Type is not ({ SpecialType: SpecialType.System_String } or { TypeKind: TypeKind.Delegate }),
+        BinaryOperatorKind.Multiply => !IsNonCommutingProduct(binary.OperatorMethod),
+        BinaryOperatorKind.And
+            or BinaryOperatorKind.Or
+            or BinaryOperatorKind.ExclusiveOr
+            or BinaryOperatorKind.ConditionalAnd
+            or BinaryOperatorKind.ConditionalOr
+            or BinaryOperatorKind.Equals
+            or BinaryOperatorKind.NotEquals => true,
+        _ => false,
+    };
+
+    private static bool IsNonCommutingProduct(IMethodSymbol? method) => method?.ContainingType is
+    {
+        Name: "Matrix3x2" or "Matrix4x4" or "Quaternion",
+        ContainingNamespace: { Name: "Numerics", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } },
+    };
 
     private static BinaryOperatorKind Mirror(BinaryOperatorKind kind) => kind switch
     {
