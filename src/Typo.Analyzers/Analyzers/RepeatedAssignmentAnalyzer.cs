@@ -49,13 +49,13 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
                 }
             }
 
-            start.RegisterOperationAction(context => AnalyzeBlock(context, purity, collections), OperationKind.Block);
+            start.RegisterOperationAction(context => AnalyzeStatements(context, purity, collections), StatementList.Kinds);
         });
     }
 
-    private static void AnalyzeBlock(OperationAnalysisContext context, PurityOracle purity, HashSet<INamedTypeSymbol> collections)
+    private static void AnalyzeStatements(OperationAnalysisContext context, PurityOracle purity, HashSet<INamedTypeSymbol> collections)
     {
-        var operations = ((IBlockOperation)context.Operation).Operations;
+        var operations = StatementList.Of(context.Operation);
         var constructor = context.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor } method ? method : null;
         for (var i = 0; i < operations.Length - 1; i++)
         {

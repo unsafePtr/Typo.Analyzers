@@ -78,18 +78,18 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     {
         context.EnableConcurrentExecution();
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
-        context.RegisterOperationAction(AnalyzeBlock, OperationKind.Block);
+        context.RegisterOperationAction(AnalyzeStatements, StatementList.Kinds);
         context.RegisterOperationAction(AnalyzeInitializer, OperationKind.ObjectOrCollectionInitializer);
         context.RegisterOperationAction(AnalyzeChain, OperationKind.Binary);
         context.RegisterOperationAction(AnalyzeArguments, OperationKind.Invocation, OperationKind.ObjectCreation);
     }
 
-    private static void AnalyzeBlock(OperationAnalysisContext context)
+    private static void AnalyzeStatements(OperationAnalysisContext context)
     {
         var items = OperandChain.Rent();
         try
         {
-            foreach (var operation in ((IBlockOperation)context.Operation).Operations)
+            foreach (var operation in StatementList.Of(context.Operation))
             {
                 switch (operation)
                 {

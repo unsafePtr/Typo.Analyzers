@@ -27,12 +27,12 @@ public sealed class AssignedVariableCheckAnalyzer : DiagnosticAnalyzer
     {
         context.EnableConcurrentExecution();
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
-        context.RegisterOperationAction(AnalyzeBlock, OperationKind.Block);
+        context.RegisterOperationAction(AnalyzeStatements, StatementList.Kinds);
     }
 
-    private static void AnalyzeBlock(OperationAnalysisContext context)
+    private static void AnalyzeStatements(OperationAnalysisContext context)
     {
-        var operations = ((IBlockOperation)context.Operation).Operations;
+        var operations = StatementList.Of(context.Operation);
         for (var i = 0; i < operations.Length - 1; i++)
         {
             if (operations[i + 1] is IConditionalOperation { Syntax: IfStatementSyntax } check

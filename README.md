@@ -51,7 +51,7 @@ TYPO0012.scan = declarations, arguments
 ```
 
 `TYPO0012.scan` lists where pairs are looked for, and the default is all five:
-- `statements`: expression statements in a block, as in `X = b.X; Y = b.X;`
+- `statements`: expression statements in a block or a switch section, as in `X = b.X; Y = b.X;`
 - `declarations`: initialized locals, as in `var minY = pts.Min(p => p.X)`
 - `initializers`: members of an object or `with` initializer
 - `conditions`: operands of a `&&` or `||` chain
@@ -82,7 +82,6 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - TYPO0012 does not report the second of two lines when the first holds one value twice, as in `Move(d.X, d.X); Move(d.X, d.Y)`, because the second line is then the first one's fix.
 - Declarations that read a local declared earlier in the same run, as in `f8 = f4 * f4; f12 = f8 * f4`, are steps of one computation and never form a run.
 - A shared receiver whose other names were renamed still fires, as in `LoadUnsafe(ref yRef, x.Length - n)` after a check that both spans have equal length.
-- Switch sections are not scanned for runs.
 - TYPO0011 needs one column whose values all differ, so a two-by-two block such as `a.Stock = a.Sum(x => x.Stock); a.Reserved = a.Sum(x => x.Stock); b.Stock = …; b.Reserved = …` forms no run.
 - TYPO0009 stays silent when the loop variable is used for anything but indexing other collections, as in `(i == 0 ? "" : ",") + Name(items[0])`, because `if (i == 0 && items[0] > 0)` has the same shape on purpose.
 - TYPO0001 does not treat `x.HasValue` and `x != null` as the same test; such pairs are redundant rather than copy-paste mistakes.
