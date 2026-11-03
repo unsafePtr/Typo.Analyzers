@@ -3,8 +3,17 @@ name: ci
 on:
   push:
     branches: [main]
+    # A change to Markdown alone skips the run, except in the files that the build or the tests read.
+    # HelpLinkTests reads README.md and PACKAGE.md, and Microsoft.CodeAnalysis.Analyzers checks the AnalyzerReleases files as additional files.
+    paths: &build-inputs
+      - '**'
+      - '!**.md'
+      - 'README.md'
+      - 'PACKAGE.md'
+      - '**/AnalyzerReleases.*.md'
   pull_request:
     branches: [main]
+    paths: *build-inputs
   workflow_dispatch:
 
 # A new push to a pull request cancels its run in flight. On main a running build finishes, and only the newest queued run follows it.
