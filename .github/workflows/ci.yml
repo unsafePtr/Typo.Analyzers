@@ -3,8 +3,17 @@ name: ci
 on:
   push:
     branches: [main]
+    # A change to Markdown alone skips the run, except in the files that the build or the tests read.
+    # HelpLinkTests reads README.md and PACKAGE.md, and Microsoft.CodeAnalysis.Analyzers checks the AnalyzerReleases files as additional files.
+    paths: &build-inputs
+      - '**'
+      - '!**.md'
+      - 'README.md'
+      - 'PACKAGE.md'
+      - '**/AnalyzerReleases.*.md'
   pull_request:
     branches: [main]
+    paths: *build-inputs
   workflow_dispatch:
 
 # A new push to a pull request cancels its run in flight. On main a running build finishes, and only the newest queued run follows it.
@@ -13,8 +22,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Match the local-dev guidance — same MSBuild server reuse on CI for faster reruns.
-  MSBUILDUSESERVER: '1'
   # Quiet down telemetry / first-run noise.
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
   DOTNET_NOLOGO: '1'
