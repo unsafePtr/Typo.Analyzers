@@ -735,6 +735,63 @@ public sealed class SimilarRunAnalyzerTests
         Pair("b.X", "b.Y"));
 
     [Fact]
+    public Task SwitchSectionsFormPairsAndRuns() => Verify.VerifyAsync(
+        """
+        public readonly record struct Vec(int X, int Y);
+
+        public sealed class Box
+        {
+            public int X { get; set; }
+            public int Y { get; set; }
+            public int Z { get; set; }
+
+            public void Constants(int kind, Box b)
+            {
+                switch (kind)
+                {
+                    case 1:
+                        X = b.X;
+                        Y = {|#0:b.X|};
+                        break;
+                    case 2:
+                    {
+                        X = b.X;
+                        Y = {|#1:b.X|};
+                        break;
+                    }
+                }
+            }
+
+            public void Patterns(object value)
+            {
+                switch (value)
+                {
+                    case Box b when b.Z > 0:
+                        X = b.X;
+                        Y = b.Y;
+                        Z = {|#2:b.Y|};
+                        break;
+                    case Box { Z: 0 } b:
+                        X = b.X;
+                        Y = {|#3:b.X|};
+                        break;
+                }
+            }
+
+            public static Vec Arm(object value) => value switch
+            {
+                Box b => new Vec(b.X, {|#4:b.X|}),
+                _ => default,
+            };
+        }
+        """,
+        Pair("b.X", "b.Y"),
+        Pair("b.X", "b.Y", 1),
+        Anomaly("b.Y", "b.Z", 2),
+        Pair("b.X", "b.Y", 3),
+        Pair("b.X", "b.Y", 4));
+
+    [Fact]
     public Task Pair_EqualsChain() => Verify.VerifyAsync(
         """
         public sealed class Size

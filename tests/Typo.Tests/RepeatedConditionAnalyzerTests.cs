@@ -53,6 +53,48 @@ public sealed class RepeatedConditionAnalyzerTests
         """);
 
     [Fact]
+    public Task AdjacentConditionInSwitchSections() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private void Print(string text) { }
+
+            public void M(object value, string first, string second)
+            {
+                switch (value)
+                {
+                    case 0:
+                        if ({|#1:!string.IsNullOrEmpty(first)|})
+                        {
+                            Print(first);
+                        }
+
+                        if ({|#0:!string.IsNullOrEmpty(first)|})
+                        {
+                            Print(second);
+                        }
+
+                        break;
+                    case string { Length: > 1 } text when text != second:
+                        if ({|#3:!string.IsNullOrEmpty(second)|})
+                        {
+                            Print(text);
+                        }
+
+                        if ({|#2:!string.IsNullOrEmpty(second)|})
+                        {
+                            Print(first);
+                        }
+
+                        break;
+                }
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedAdjacentCondition, "!string.IsNullOrEmpty(first)"),
+        Verify.Diagnostic(Descriptors.RepeatedAdjacentCondition).WithLocation(2).WithLocation(3).WithArguments("!string.IsNullOrEmpty(second)"));
+
+    [Fact]
     public Task StringMemberConditionIsNotMutableState() => Verify.VerifyAsync(
         """
         public sealed class C

@@ -31,6 +31,42 @@ public sealed class AssignedVariableCheckAnalyzerTests
         Checked("_value", "value"));
 
     [Fact]
+    public Task SourceCheckedInSwitchSections() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private string _name = "";
+
+            public bool M(object value, string name)
+            {
+                switch (value)
+                {
+                    case 0:
+                        _name = name.Trim();
+                        if ({|#0:name|}.Length == 0)
+                        {
+                            return false;
+                        }
+
+                        return _name.Length > 3;
+                    case string path when path.Length > 1:
+                        var _path = path.Trim();
+                        if ({|#1:path|}.Length == 0)
+                        {
+                            return false;
+                        }
+
+                        return _path.Length > 3;
+                    default:
+                        return false;
+                }
+            }
+        }
+        """,
+        Checked("_name", "name"),
+        Verify.Diagnostic(Descriptors.CheckedSourceInsteadOfAssigned).WithLocation(1).WithArguments("_path", "path"));
+
+    [Fact]
     public Task LocalAssignedFromCallOnSimilarName() => Verify.VerifyAsync(
         """
         public static class C

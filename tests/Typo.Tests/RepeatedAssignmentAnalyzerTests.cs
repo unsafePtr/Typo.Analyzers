@@ -30,6 +30,35 @@ public sealed class RepeatedAssignmentAnalyzerTests
         Overwritten("_repeatY"));
 
     [Fact]
+    public Task FieldAssignedTwiceInSwitchSections() => Verify.VerifyAsync(
+        """
+        public sealed class C
+        {
+            private int _a;
+            private int _b;
+
+            public int Sum => _a + _b;
+
+            public void Set(object value)
+            {
+                switch (value)
+                {
+                    case 0:
+                        {|#1:_a|} = 1;
+                        {|#0:_a|} = 2;
+                        break;
+                    case int n when n > 0:
+                        {|#3:_b|} = n;
+                        {|#2:_b|} = 0;
+                        break;
+                }
+            }
+        }
+        """,
+        Overwritten("_a"),
+        Overwritten("_b", 2, 3));
+
+    [Fact]
     public Task ArrayElementWrittenTwice() => Verify.VerifyAsync(
         """
         public static class C

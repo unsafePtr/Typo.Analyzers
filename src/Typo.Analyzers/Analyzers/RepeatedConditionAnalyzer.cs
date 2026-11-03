@@ -37,7 +37,7 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
         {
             var purity = PurityOracle.For(start.Compilation);
             start.RegisterOperationAction(context => AnalyzeIf(context, purity), OperationKind.Conditional);
-            start.RegisterOperationAction(context => AnalyzeBlock(context, purity), OperationKind.Block);
+            start.RegisterOperationAction(context => AnalyzeStatements(context, purity), StatementList.Kinds);
         });
     }
 
@@ -196,9 +196,9 @@ public sealed class RepeatedConditionAnalyzer : DiagnosticAnalyzer
     }
 
     // After an 'if' that always exits, control only reaches the following statements when its condition was false, so a later 'if' repeating it is dead even with statements in between.
-    private static void AnalyzeBlock(OperationAnalysisContext context, PurityOracle purity)
+    private static void AnalyzeStatements(OperationAnalysisContext context, PurityOracle purity)
     {
-        var operations = ((IBlockOperation)context.Operation).Operations;
+        var operations = StatementList.Of(context.Operation);
         if (operations.Length < 2)
         {
             return;
