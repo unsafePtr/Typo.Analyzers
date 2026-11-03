@@ -31,7 +31,7 @@ TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info
 | <a id="typo0013"></a>TYPO0013 | ComparisonOperandAnalyzer | A comparison of a variable with a sum, difference or product that contains the same variable, as in `x == x + 1` or `x < x * y` (Info severity) |
 | <a id="typo0014"></a>TYPO0014 | AssignedVariableCheckAnalyzer | A variable assigned a transformed copy of a similarly named one, followed by an `if` that tests the original, as in `_value = value < 0 ? 0 : value; if (value == 0)` (Info severity) |
 
-The analyzers share the core in `src/Typo.Analyzers/Core`, except IdenticalBranchesAnalyzer, which compares syntax:
+The analyzers share the core in `src/Typo.Analyzers/Core`; IdenticalBranchesAnalyzer compares syntax and uses only `Quote`:
 - `OperationEquivalence`: semantic expression equality, where `a + b` matches `b + a` and `a < b` matches `b > a`, plus a matching hash.
 - `Negation`: one test in different spellings (`x == null`, `x is null`), exact opposites, and tests that exclude each other.
 - `PurityOracle`: which calls and getters are side-effect free (clocks, `Guid.NewGuid` and `Path.GetRandomFileName` are not).
@@ -40,6 +40,8 @@ The analyzers share the core in `src/Typo.Analyzers/Core`, except IdenticalBranc
 - `Jumps`: whether a statement always exits.
 - `Framework`: .NET types versus user types, for the reflexivity skips, TYPO0012's framework values and TYPO0008 initializers.
 - `Limits`: depth and stack guards, so huge generated expressions cannot overflow the compiler's stack.
+- `StatementList`: the lists of neighbouring statements that rules compare, from blocks and switch sections alike.
+- `Quote`: the source text of a diagnostic message on one line, so MSBuild's line-by-line log does not cut it.
 
 ## Options
 
@@ -87,26 +89,27 @@ The compiler and IDE run analyzers under the user's culture, so no verdict may d
 - TYPO0001 does not treat `x.HasValue` and `x != null` as the same test; such pairs are redundant rather than copy-paste mistakes.
 - TYPO0001 leaves a comparison of a local, parameter or field with itself, as in `count < count`, to the compiler's CS1718, which reports exactly these; properties, elements and calls stay TYPO0001's.
 - Swapped arguments matched by parameter name are left to Sonar S2234.
-- TYPO0011 and TYPO0012 scan expression statements and declarations only, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
+- Among statements, TYPO0011 and TYPO0012 pair only expression statements and initialized declarations, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
 - TYPO0008 ignores locals and parameters, which the compiler's unused-assignment check IDE0059 covers.
 - TYPO0008 pairs a null-conditional write only with one of the same shape, so `a?.X = 1; a.X = 2;` is not reported.
 - TYPO0002 does not flag an arbitrary user method called with its own receiver, as in `a.Foo(a)`, because `list.AddRange(list)` style calls are common.
 
 ## Build and test
 
-```powershell
-$env:MSBUILDUSESERVER = '1'
+```shell
 dotnet restore
 dotnet build -v:q --no-restore
 dotnet run --project tests/Typo.Tests/Typo.Tests.csproj
 ```
+
+The tests run on xUnit's own runner, so its options follow `--`, as in `-- -class "*HelpLinkTests"`, instead of `dotnet test` filters.
 
 The first restore points git at the hooks in `.githooks`, whose pre-commit hook checks the whitespace of the staged C# files with `dotnet format whitespace`.
 The full `dotnet format --verify-no-changes`, with style and analyzer rules, runs in CI.
 
 Coverage needs the Microsoft.Testing.Platform host, which `dotnet test` provides (xUnit's native runner behind `dotnet run` rejects `--coverage`):
 
-```powershell
+```shell
 dotnet test --project tests/Typo.Tests/Typo.Tests.csproj --coverage --coverage-output-format cobertura
 ```
 
