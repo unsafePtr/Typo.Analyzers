@@ -634,6 +634,487 @@ public sealed class SimilarRunAnalyzerTests
         }
         """);
 
+    // Each suggestion here is the field the line writes, so the suggested line would read 'f = f'.
+    [Fact]
+    public Task NoDiagnostics_WhenTheSuggestionWritesTheTargetFieldItself() => Verify.VerifyAsync(
+        """
+        public sealed class ConstSource
+        {
+            private readonly float constant;
+            private readonly float dv;
+
+            public ConstSource(float constant)
+            {
+                this.constant = constant;
+                this.dv = constant;
+            }
+        }
+
+        public sealed class PrefixedSource
+        {
+            private readonly float _constant;
+            private readonly float _dv;
+
+            public PrefixedSource(float constant)
+            {
+                _constant = constant;
+                _dv = constant;
+            }
+        }
+
+        public sealed class CharIterator
+        {
+            private int start;
+            private int length;
+            private int index;
+
+            public void Reset(int start, int length)
+            {
+                this.start = start;
+                this.length = length;
+                this.index = start;
+            }
+        }
+        """);
+
+    // A parameter of the suggested name hides the field, so the same lines report.
+    [Fact]
+    public Task ParameterOfTheSuggestedNameHidesTheTargetField() => Verify.VerifyAsync(
+        """
+        public sealed class ConstSource
+        {
+            private readonly float constant;
+            private readonly float dv;
+
+            public ConstSource(float constant, float dv)
+            {
+                this.constant = constant;
+                this.dv = {|#0:constant|};
+            }
+        }
+
+        public sealed class PrefixedSource
+        {
+            private readonly float _constant;
+            private readonly float _dv;
+
+            public PrefixedSource(float constant, float dv)
+            {
+                _constant = constant;
+                _dv = {|#1:constant|};
+            }
+        }
+
+        public sealed class CharIterator
+        {
+            private int start;
+            private int length;
+            private int index;
+
+            public void Reset(int start, int length, int index)
+            {
+                this.start = start;
+                this.length = length;
+                this.index = {|#2:start|};
+            }
+        }
+        """,
+        Pair("constant", "dv"),
+        Pair("constant", "dv", 1),
+        Anomaly("start", "index", 2));
+
+    [Fact]
+    public Task UnreadParameterIsSuggestedWhenTheRenamedNameIsUnusable() => Verify.VerifyAsync(
+        """
+        public sealed class ConstSource
+        {
+            private readonly float constant;
+            private readonly float dv;
+
+            public ConstSource(float constant, float value)
+            {
+                this.constant = constant;
+                this.dv = {|#0:constant|};
+            }
+        }
+
+        public sealed class PrefixedSource
+        {
+            private readonly float _constant;
+            private readonly float _dv;
+
+            public PrefixedSource(float constant, float value)
+            {
+                _constant = constant;
+                _dv = {|#1:constant|};
+            }
+        }
+
+        public sealed class Scaled
+        {
+            private readonly double scale;
+            private readonly double offset;
+
+            public Scaled(double scale, string label, double first, double second)
+            {
+                this.scale = scale;
+                this.offset = {|#2:scale|};
+            }
+        }
+
+        public sealed class Box
+        {
+            public float Constant { get; set; }
+            public float Dv { get; set; }
+
+            public static System.Action<float, float> Setter(Box box) => (constant, value) =>
+            {
+                box.Constant = constant;
+                box.Dv = {|#3:constant|};
+            };
+        }
+        """,
+        Pair("constant", "value"),
+        Pair("constant", "value", 1),
+        Pair("scale", "first", 2),
+        Pair("constant", "value", 3));
+
+    // Discards are unread on purpose, and a string cannot stand where a float goes.
+    [Fact]
+    public Task NoDiagnostics_ForUnreadParametersThatCannotBeMeant() => Verify.VerifyAsync(
+        """
+        public sealed class Discarded
+        {
+            private readonly float constant;
+            private readonly float dv;
+
+            public Discarded(float constant, float _)
+            {
+                this.constant = constant;
+                this.dv = constant;
+            }
+
+            public Discarded(float constant, int _1, float __)
+            {
+                this.constant = constant;
+                this.dv = constant;
+            }
+        }
+
+        public sealed class Mistyped
+        {
+            private readonly float constant;
+            private readonly float dv;
+
+            public Mistyped(float constant, string label)
+            {
+                this.constant = constant;
+                this.dv = constant;
+            }
+        }
+        """);
+
+    [Fact]
+    public Task PrefixedFieldIsSuggestedForAParameterCopy() => Verify.VerifyAsync(
+        """
+        public sealed class Underscore
+        {
+            private float _total;
+            public float Count, Total;
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = {|#0:count|};
+            }
+        }
+
+        public sealed class Plain
+        {
+            private float total;
+            public float Count, Total;
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = {|#1:count|};
+            }
+        }
+
+        public sealed class Member
+        {
+            private float m_total;
+            public float Count { get; set; }
+            public float Total { get; set; }
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = {|#2:count|};
+            }
+        }
+
+        public sealed class Shared
+        {
+            private static float s_total;
+            public float Count { get; set; }
+            public float Total { get; set; }
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = {|#3:count|};
+            }
+        }
+
+        public class Accumulator
+        {
+            protected float _total;
+        }
+
+        public sealed class Derived : Accumulator
+        {
+            public float Count, Total;
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = {|#4:count|};
+            }
+        }
+        """,
+        Pair("count", "_total"),
+        Pair("count", "total", 1),
+        Pair("count", "m_total", 2),
+        Pair("count", "s_total", 3),
+        Pair("count", "_total", 4));
+
+    // 'Total = _total' through Total's own field changes nothing, whether the getter returns the field or the setter assigns it.
+    [Fact]
+    public Task NoDiagnostics_ForTheBackingFieldOfTheTargetProperty() => Verify.VerifyAsync(
+        """
+        public sealed class ArrowAccessors
+        {
+            private float _count;
+            private float _total;
+
+            public float Count { get => _count; set => _count = value; }
+            public float Total { get => _total; set => _total = value; }
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = count;
+            }
+        }
+
+        public sealed class BlockAccessors
+        {
+            private float m_count;
+            private float m_total;
+            private int changes;
+
+            public float Count
+            {
+                get { return m_count; }
+                set { m_count = value; }
+            }
+
+            public float Total
+            {
+                get { return System.Math.Max(m_total, 0f); }
+                set
+                {
+                    m_total = value;
+                    changes++;
+                }
+            }
+
+            public void Set(float count)
+            {
+                Count = count;
+                Total = count;
+            }
+        }
+        """);
+
+    // An instance field cannot be read in a static method, a static local function or a field initializer.
+    [Fact]
+    public Task InstanceFieldIsSuggestedOnlyWhereThereIsAnInstance() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class Stats
+        {
+            private static float s_count;
+            private static float s_total;
+            private float total;
+
+            private readonly Action<float> reset = count =>
+            {
+                s_count = count;
+                s_total = count;
+            };
+
+            public static void ResetAll(float count)
+            {
+                s_count = count;
+                s_total = count;
+            }
+
+            public void Run(float value)
+            {
+                Apply(value);
+
+                static void Apply(float count)
+                {
+                    s_count = count;
+                    s_total = count;
+                }
+            }
+
+            public void Reset(float count)
+            {
+                s_count = count;
+                s_total = {|#0:count|};
+            }
+        }
+        """,
+        Pair("count", "total"));
+
+    // An instance field cannot be read in a constructor initializer or a primary constructor's base arguments; a parameter of the same name can.
+    [Fact]
+    public Task ConstructorInitializersReportOnlyParameters() => Verify.VerifyAsync(
+        """
+        using System.IO;
+
+        public class PathTokenizer
+        {
+            public const int DefaultSkip = 0;
+            private readonly char replacement;
+
+            public PathTokenizer(TextReader input, int bufferSize, char delimiter)
+                : this(input, bufferSize, delimiter, delimiter, DefaultSkip)
+            {
+            }
+
+            public PathTokenizer(TextReader input, int bufferSize, char delimiter, char replacement, int skip)
+            {
+                this.replacement = replacement;
+            }
+        }
+
+        public class ReversePathTokenizer
+        {
+            public const int DefaultSkip = 0;
+            private readonly char replacement;
+
+            public ReversePathTokenizer(TextReader input, int bufferSize, char delimiter, char replacement)
+                : this(input, bufferSize, delimiter, {|#0:delimiter|}, DefaultSkip)
+            {
+            }
+
+            public ReversePathTokenizer(TextReader input, int bufferSize, char delimiter, char replacement, int skip)
+            {
+                this.replacement = replacement;
+            }
+        }
+
+        public class Span3
+        {
+            public Span3(int start, int length, int end)
+            {
+            }
+        }
+
+        public sealed class Window(int start, int length) : Span3(start, length, start)
+        {
+            private readonly int end = start + length;
+        }
+        """,
+        Anomaly("delimiter", "replacement"));
+
+    // 'validity.Validity' does not bind when the field validity is a uint.
+    [Fact]
+    public Task NoDiagnostics_WhenTheSuggestedReceiverLacksTheMember() => Verify.VerifyAsync(
+        """
+        public readonly struct UniqueId
+        {
+            public uint Validity { get; init; }
+            public uint Id { get; init; }
+        }
+
+        public sealed class UniqueIdRange
+        {
+            private readonly uint validity;
+            private readonly uint start;
+            private readonly uint end;
+
+            public UniqueIdRange(UniqueId start, UniqueId end)
+            {
+                this.validity = start.Validity;
+                this.start = start.Id;
+                this.end = end.Id;
+            }
+        }
+        """);
+
+    // A suggestion of another type is dropped only where it cannot be assigned, not where the call picks another overload or type argument for it.
+    [Fact]
+    public Task SuggestionMustConvertToTheTargetType() => Verify.VerifyAsync(
+        """
+        public interface IBuildContext
+        {
+        }
+
+        public sealed class ContextRef
+        {
+        }
+
+        public sealed class Aggregation
+        {
+            public ContextRef? RootContext { get; set; }
+            public ContextRef? SqlContext { get; set; }
+        }
+
+        public static class Builder
+        {
+            public static Aggregation Build(ContextRef rootContext, IBuildContext parent)
+            {
+                var sqlContext = parent;
+                return new Aggregation { RootContext = rootContext, SqlContext = rootContext };
+            }
+
+            public static Aggregation BuildRef(ContextRef rootContext, ContextRef sqlContext) =>
+                new Aggregation { RootContext = rootContext, SqlContext = {|#0:rootContext|} };
+
+            private static T Pick<T>(T first, T second) => first;
+
+            public static long Picked(int first, long second) => Pick(first, {|#1:first|});
+        }
+        """,
+        Pair("rootContext", "sqlContext"),
+        Pair("first", "second", 1));
+
+    [Fact]
+    public Task Pair_NameOfRepeatsTheFirstParameter() => Verify.VerifyAsync(
+        """
+        using System;
+
+        public sealed class DistanceSource
+        {
+            private readonly object shapeValueSource;
+            private readonly object queryPoint;
+
+            public DistanceSource(object shapeValueSource, object queryPoint)
+            {
+                this.shapeValueSource = shapeValueSource ?? throw new ArgumentNullException(nameof(shapeValueSource));
+                this.queryPoint = queryPoint ?? throw new ArgumentNullException(nameof({|#0:shapeValueSource|}));
+            }
+        }
+        """,
+        Pair("shapeValueSource", "queryPoint"));
+
     [Fact]
     public Task ArgumentRun() => Verify.VerifyAsync(
         """
