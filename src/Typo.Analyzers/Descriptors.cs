@@ -5,7 +5,7 @@ namespace Typo;
 internal static class Descriptors
 {
     private const string Correctness = "Correctness";
-    private const string HelpLinkBase = "https://github.com/unsafePtr/TypoAnalyzer#";
+    private const string HelpLinkBase = "https://github.com/unsafePtr/Typo.Analyzers#";
 
     public static readonly DiagnosticDescriptor IdenticalSubExpressions = new(
         id: "TYPO0001",

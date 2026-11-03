@@ -8,7 +8,7 @@ namespace Typo.Tests;
 /// </summary>
 public sealed class HelpLinkTests
 {
-    private const string Repository = "https://github.com/unsafePtr/TypoAnalyzer";
+    private const string Repository = "https://github.com/unsafePtr/Typo.Analyzers";
 
     [Fact]
     public void EveryRule_LinksToItsReadmeAnchor()

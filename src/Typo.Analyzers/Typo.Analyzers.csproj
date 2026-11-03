@@ -12,8 +12,8 @@
     <Copyright>Copyright (c) Nikolay Zdravkov</Copyright>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>roslyn;analyzers;typo;copy-paste;static-analysis;code-quality</PackageTags>
-    <PackageProjectUrl>https://github.com/unsafePtr/TypoAnalyzer</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/unsafePtr/TypoAnalyzer</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/unsafePtr/Typo.Analyzers</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/unsafePtr/Typo.Analyzers</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageReadmeFile>PACKAGE.md</PackageReadmeFile>
