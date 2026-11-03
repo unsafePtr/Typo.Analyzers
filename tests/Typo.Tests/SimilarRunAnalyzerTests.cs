@@ -889,6 +889,55 @@ public sealed class SimilarRunAnalyzerTests
         Pair("count", "s_total", 3),
         Pair("count", "_total", 4));
 
+    // The parameter copy comes first and has only the fallback _depth or _total; the member copy after or before it has a plain name and is the one reported.
+    [Fact]
+    public Task PlainNameOfALaterCandidateWinsOverAFallback() => Verify.VerifyAsync(
+        """
+        public sealed class Size
+        {
+            public float Width { get; set; }
+            public float Height { get; set; }
+            public float Depth { get; set; }
+            public float Count { get; set; }
+            public float Total { get; set; }
+        }
+
+        public sealed class Box
+        {
+            private float _depth;
+            private float _total;
+            public float Width, Height, Depth, Count, Total;
+
+            private static float Mix(float a, float b) => a + b;
+
+            private static void Keep(float value, float other, float target)
+            {
+            }
+
+            public void Run(float width, float height, Size other)
+            {
+                Width = Mix(width, other.Width);
+                Height = Mix(height, other.Height);
+                Depth = Mix(height, {|#0:other.Height|});
+            }
+
+            public void CopyAfterTheKey(float count, Size other)
+            {
+                Count = Mix(count, other.Count);
+                Total = Mix(count, {|#1:other.Count|});
+            }
+
+            public void CopyBeforeTheKey(float count, Size other)
+            {
+                Keep(count, other.Count, Count);
+                Keep(count, {|#2:other.Count|}, Total);
+            }
+        }
+        """,
+        Anomaly("other.Height", "other.Depth"),
+        Pair("other.Count", "other.Total", 1),
+        Pair("other.Count", "other.Total", 2));
+
     // 'Total = _total' through Total's own field changes nothing, whether the getter returns the field or the setter assigns it.
     [Fact]
     public Task NoDiagnostics_ForTheBackingFieldOfTheTargetProperty() => Verify.VerifyAsync(

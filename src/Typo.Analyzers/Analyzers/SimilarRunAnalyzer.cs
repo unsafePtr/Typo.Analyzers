@@ -24,7 +24,8 @@ namespace Typo.Analyzers;
 /// Framework values, renamed enclosing calls and squares such as Multiply(x, x) guard pairs only.
 /// Declaration chains such as <c>f8 = f4 * f4; f12 = f8 * f4</c> are skipped in runs and pairs alike.
 /// The suggested name must exist in scope, which suppresses the classic false positive <c>halfWidth -= borderWidth; halfHeight -= borderWidth;</c> when there is no borderHeight.
-/// It must also make a line that compiles and does not write a field to itself; a local or parameter copy may instead be suggested a field _name, m_name or s_name, or an unread parameter.
+/// It must also make a line that compiles and does not write a field to itself.
+/// Only when no candidate of a run or pair has such a name may a local or parameter copy be suggested a field _name, m_name or s_name, or else an unread parameter.
 /// Runs are scanned in statement blocks (expression statements and declarations), object initializers, &amp;&amp;/|| chains and argument lists.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -56,6 +57,12 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         Exact,
         KeyEndsWith,
         KeyStartsWith,
+    }
+
+    private enum Tier
+    {
+        PrefixedField,
+        UnreadParameter,
     }
 
     [Flags]
@@ -479,6 +486,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             affixes[c] = HasData(rows, slots, first, count, c) ? null : Affixes(names, count, c);
         }
 
+        List<Fallback>? fallbacks = null;
         for (var key = 0; key < columns; key++)
         {
             if (affixes[key] is not { } keyAffix)
@@ -523,14 +531,21 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                         + oddName.Substring(oddName.Length - otherAffix.Suffix);
 
                     var slot = slots[rows[first + odd].Start + other];
-                    if (TrySuggest(slot, expected, out var suggestion))
+                    if (CanSuggest(slot, expected))
                     {
-                        Report(context, Descriptors.SimilarLineAnomaly, slot, oddName, suggestion);
+                        Report(context, Descriptors.SimilarLineAnomaly, slot, oddName, expected);
                         return;
+                    }
+
+                    if (CanFallBack(slot))
+                    {
+                        (fallbacks ??= []).Add(new Fallback(slot, oddName, expected));
                     }
                 }
             }
         }
+
+        ReportFallback(context, Descriptors.SimilarLineAnomaly, fallbacks);
     }
 
     // The second row is the one reported, because a copy is usually made from the line above and then edited.
@@ -584,9 +599,10 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
         // The copy usually follows the renamed name, as b.X in 'Y = b.X'.
         // It may also precede it, as Width in 'Width == o.Height' after 'Width == o.Width'; those columns are tried last.
+        List<Fallback>? fallbacks = null;
         for (var c = key + 1; c < columns; c++)
         {
-            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to))
+            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to, ref fallbacks))
             {
                 return;
             }
@@ -594,11 +610,13 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
         for (var c = 0; c < key; c++)
         {
-            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to))
+            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to, ref fallbacks))
             {
                 return;
             }
         }
+
+        ReportFallback(context, Descriptors.SimilarPairAnomaly, fallbacks);
     }
 
     private static bool TryReportCopy(
@@ -610,7 +628,8 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         int key,
         int c,
         ReadOnlySpan<char> from,
-        ReadOnlySpan<char> to)
+        ReadOnlySpan<char> to,
+        ref List<Fallback>? fallbacks)
     {
         var copy = slots[b + c];
         if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation) || IsMemberOfRenamedReceiver(slots, a, b, columns, copy.Operation))
@@ -635,12 +654,22 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         var expected = name.Substring(0, at) + replacement + name.Substring(at + from.Length);
 
         // In X = p.Y + p.X; Y = p.Y + p.X both names already appear on both lines, so the second line was edited on purpose.
-        if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected) || !TrySuggest(copy, expected, out var suggestion))
+        if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected))
         {
             return false;
         }
 
-        Report(context, Descriptors.SimilarPairAnomaly, copy, name, suggestion);
+        if (!CanSuggest(copy, expected))
+        {
+            if (CanFallBack(copy))
+            {
+                (fallbacks ??= []).Add(new Fallback(copy, name, expected));
+            }
+
+            return false;
+        }
+
+        Report(context, Descriptors.SimilarPairAnomaly, copy, name, expected);
         return true;
     }
 
@@ -1206,13 +1235,10 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         return fragment;
     }
 
-    // Finds the name to suggest for a copy, or reports that no name fits, which drops the finding.
-    // A suggested member must be the same kind of member as the one it replaces, and every suggestion must pass IsUsable.
-    // A local or parameter copy whose renamed name is unusable may instead have meant the field _name, m_name or s_name, or a parameter its function never reads.
+    // A suggested name must exist where the copy stands and pass IsUsable, and a suggested member must be the same kind of member as the one it replaces.
     // This runs only for a finding about to be reported.
-    private static bool TrySuggest(Slot slot, string expected, out string suggestion)
+    private static bool CanSuggest(Slot slot, string expected)
     {
-        suggestion = expected;
         var copy = slot.Operation;
         switch (slot.Symbol)
         {
@@ -1220,45 +1246,9 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                 return true;
 
             case ILocalSymbol or IParameterSymbol:
-            {
-                if (copy.SemanticModel is not { } model)
-                {
-                    return false;
-                }
-
-                var hasSite = Site.TryCreate(copy, slot.Symbol.Name, out var site);
-                var position = copy.Syntax.SpanStart;
-                if (FirstDeclared(model, position, expected) is { } symbol && (!hasSite || IsUsable(model, site, symbol, expected)))
-                {
-                    return true;
-                }
-
-                if (!hasSite || !site.Bindable)
-                {
-                    return false;
-                }
-
-                foreach (var prefix in s_fieldPrefixes)
-                {
-                    var name = prefix + expected;
-                    if (FirstDeclared(model, position, name) is IFieldSymbol field
-                        && IsInheritedBy(model, site, field)
-                        && !IsBackingField(copy, field)
-                        && IsUsable(model, site, field, name))
-                    {
-                        suggestion = name;
-                        return true;
-                    }
-                }
-
-                if (UnusedParameter(model, site) is { } parameter)
-                {
-                    suggestion = parameter.Name;
-                    return true;
-                }
-
-                return false;
-            }
+                return copy.SemanticModel is { } model
+                    && FirstDeclared(model, copy.Syntax.SpanStart, expected) is { } symbol
+                    && (!Site.TryCreate(copy, slot.Symbol.Name, out var site) || IsUsable(model, site, symbol, expected));
 
             default:
                 for (var type = slot.Symbol.ContainingType; type is not null; type = type.BaseType)
@@ -1267,15 +1257,77 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                     {
                         if (IsSameKind(slot.Symbol, member))
                         {
-                            return copy.SemanticModel is not { } model
-                                || !Site.TryCreate(copy, slot.Symbol.Name, out var site)
-                                || IsUsable(model, site, member, expected);
+                            return copy.SemanticModel is not { } semanticModel
+                                || !Site.TryCreate(copy, slot.Symbol.Name, out var memberSite)
+                                || IsUsable(semanticModel, memberSite, member, expected);
                         }
                     }
                 }
 
                 return false;
         }
+    }
+
+    private static bool CanFallBack(Slot slot) => slot.Symbol is ILocalSymbol or IParameterSymbol;
+
+    // A local or parameter copy whose renamed name is unusable may have meant the field _name, m_name or s_name, or a parameter its function never reads.
+    // Fallbacks are tried only after every candidate of the run or pair failed with its plain name, so a plain name always wins.
+    // Each tier is tried on every candidate, in the order the caller found them, before the next tier.
+    private static void ReportFallback(OperationAnalysisContext context, DiagnosticDescriptor descriptor, List<Fallback>? fallbacks)
+    {
+        if (fallbacks is null)
+        {
+            return;
+        }
+
+        for (var tier = Tier.PrefixedField; tier <= Tier.UnreadParameter; tier++)
+        {
+            foreach (var fallback in fallbacks)
+            {
+                if (TryFallback(fallback.Slot, fallback.Expected, tier, out var suggestion))
+                {
+                    Report(context, descriptor, fallback.Slot, fallback.Name, suggestion);
+                    return;
+                }
+            }
+        }
+    }
+
+    private static bool TryFallback(Slot slot, string expected, Tier tier, out string suggestion)
+    {
+        suggestion = expected;
+        var copy = slot.Operation;
+        if (copy.SemanticModel is not { } model || !Site.TryCreate(copy, slot.Symbol!.Name, out var site) || !site.Bindable)
+        {
+            return false;
+        }
+
+        if (tier == Tier.UnreadParameter)
+        {
+            if (UnusedParameter(model, site) is not { } parameter)
+            {
+                return false;
+            }
+
+            suggestion = parameter.Name;
+            return true;
+        }
+
+        var position = copy.Syntax.SpanStart;
+        foreach (var prefix in s_fieldPrefixes)
+        {
+            var name = prefix + expected;
+            if (FirstDeclared(model, position, name) is IFieldSymbol field
+                && IsInheritedBy(model, site, field)
+                && !IsBackingField(copy, field)
+                && IsUsable(model, site, field, name))
+            {
+                suggestion = name;
+                return true;
+            }
+        }
+
+        return false;
     }
 
     // Lookup also returns locals declared later in the block, which the line cannot have meant.
@@ -1645,6 +1697,9 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     private static int Mix(int hash, int value) => unchecked((hash * 31) + value);
 
     private readonly record struct Row(int Hash, int Start, int Count);
+
+    // A candidate whose plain name failed and that may still be reported with a fallback name.
+    private readonly record struct Fallback(Slot Slot, string Name, string Expected);
 
     // A key-only slot (a declared local or a parameter name) can identify a row but is never the name reported.
     private readonly record struct Slot(IOperation Operation, ISymbol? Symbol, object? Constant, bool IsData, bool KeyOnly = false);
