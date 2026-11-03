@@ -326,13 +326,10 @@ internal static class OperationEquivalence
                         || (PatternsEquivalent(binary.LeftPattern, other.RightPattern, next) && PatternsEquivalent(binary.RightPattern, other.LeftPattern, next)));
             }
 
+            // The declared variable only names the matched value, so 'o is T a' tests what 'o is T b' tests.
+            // 'var x' also matches null and has no matched type, so it never equals 'T x'.
             case IDeclarationPatternOperation declaration:
-            {
-                var other = (IDeclarationPatternOperation)y;
-                return declaration.DeclaredSymbol is null
-                    && other.DeclaredSymbol is null
-                    && SameType(declaration.MatchedType, other.MatchedType);
-            }
+                return SameType(declaration.MatchedType, ((IDeclarationPatternOperation)y).MatchedType);
 
             case IDiscardPatternOperation:
                 return true;

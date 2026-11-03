@@ -1628,6 +1628,54 @@ public sealed class RepeatedConditionAnalyzerTests
         Expect(Descriptors.RepeatedElseIfCondition, "content is XmlSchemaSimpleTypeRestriction"));
 
     [Fact]
+    public Task ElseIfTypeTestRepeatedUnderAnotherVariableName() => Verify.VerifyAsync(
+        """
+        public sealed class Markup { public void Write(string name) { } }
+        public sealed class Bookmark { public void Write(string name) { } }
+
+        public static class Table
+        {
+            public static void Write(object o)
+            {
+                if ({|#1:o is Markup markup|})
+                {
+                    markup.Write("customXmlMoveToRangeEnd");
+                }
+                else if (o is Bookmark bookmark)
+                {
+                    bookmark.Write("moveToRangeStart");
+                }
+                else if ({|#0:o is Markup ctMarkup|})
+                {
+                    ctMarkup.Write("customXmlDelRangeEnd");
+                }
+            }
+        }
+        """,
+        Expect(Descriptors.RepeatedNestedCondition, "o is Markup ctMarkup", "false"));
+
+    [Fact]
+    public Task ElseIfVarPatternAlsoMatchesNull() => Verify.VerifyAsync(
+        """
+        public static class C
+        {
+            private static void Use(string text) { }
+
+            public static void M(string text)
+            {
+                if (text is string known)
+                {
+                    Use(known);
+                }
+                else if (text is var other)
+                {
+                    Use(other);
+                }
+            }
+        }
+        """);
+
+    [Fact]
     public Task SubtitleEdit_ShadowNameTestedTwice() => Verify.VerifyAsync(
         """
         using System.Text;

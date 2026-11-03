@@ -47,6 +47,50 @@ public sealed class RepeatedAssignmentAnalyzerTests
         Overwritten("dst[1]"));
 
     [Fact]
+    public Task InnerTargetOfChainedAssignmentOverwritten() => Verify.VerifyAsync(
+        """
+        public sealed class Scalar
+        {
+            private uint _d0;
+            private uint _d1;
+            private uint _d2;
+
+            public uint Sum => _d0 + _d1 + _d2;
+
+            public Scalar(ulong value)
+            {
+                {|#3:_d0|} = {|#1:_d1|} = _d2 = 0;
+                {|#2:_d0|} = (uint)(value & uint.MaxValue);
+                {|#0:_d1|} = (uint)(value >> 32);
+            }
+        }
+        """,
+        Overwritten("_d0", 2, 3),
+        Overwritten("_d1"));
+
+    [Fact]
+    public Task InnerTargetOfChainReadByOuterSetterIsSilent() => Verify.VerifyAsync(
+        """
+        public sealed class Counter
+        {
+            private int _count;
+            private int _total;
+
+            public int Total
+            {
+                get => _total;
+                set => _total = value + _count;
+            }
+
+            public void Reset(int start)
+            {
+                Total = _count = 0;
+                _count = start;
+            }
+        }
+        """);
+
+    [Fact]
     public Task AutoPropertyOverwrittenAfterUnrelatedWrite() => Verify.VerifyAsync(
         """
         public sealed class Point

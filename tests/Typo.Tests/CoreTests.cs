@@ -126,7 +126,8 @@ public sealed class CoreTests
         { "Math.Max(i, j)", "Math.Max(i, j)", true },
         { "new Box()", "new Box()", false },
         { "$\"{i}\"", "$\"{i}\"", false },
-        { "o is string x1", "o is string x2", false },
+        { "o is string x1", "o is string x2", true },
+        { "s is string x1", "s is var x2", false },
         { "i is 1 or _", "i is 1 or _", true },
         { "s is { Length: 1 }", "s is { Length: 1 }", false },
     };
