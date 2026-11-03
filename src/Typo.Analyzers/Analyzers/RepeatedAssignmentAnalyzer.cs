@@ -59,46 +59,90 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
         var constructor = context.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.Constructor } method ? method : null;
         for (var i = 0; i < operations.Length - 1; i++)
         {
-            if (AsAssignment(operations[i]) is not { } first
-                || !IsTracked(first.Target, purity, collections)
-                || !ReceiversFree(operations[i], purity)
-                || ReadSet.RootSymbol(first.Target) is not { } symbol
-                || (i > 0 && ResetsAfterDispose(operations[i - 1], first)))
+            if (AsAssignment(operations[i]) is not { } first || !ReceiversFree(operations[i], purity))
             {
                 continue;
             }
 
-            var writingConstructor = first.Target is IMemberReferenceOperation { Instance: IInstanceReferenceOperation } ? constructor : null;
-            var location = LocationOf(operations[i], first.Target);
-            for (var k = i + 1; k < operations.Length; k++)
+            if (i == 0 || !ResetsAfterDispose(operations[i - 1], first))
             {
-                if (AsAssignment(operations[k]) is not { } next)
-                {
-                    break;
-                }
-
-                if (SameTarget(operations[i], operations[k]))
-                {
-                    if (!References(next.Value, symbol, writingConstructor) && !CallsSourceReader(next.Value, symbol))
-                    {
-                        var overwrite = TargetOf(operations[k], next);
-                        context.ReportDiagnostic(Diagnostic.Create(
-                            Descriptors.OverwrittenBeforeUse,
-                            overwrite,
-                            additionalLocations: [TargetOf(operations[i], first)],
-                            messageArgs: [Quote.Of(operations[k].Syntax, overwrite.SourceSpan)]));
-                    }
-
-                    break;
-                }
-
-                if (References(operations[k], symbol, writingConstructor)
-                    || CallsImpure(operations[k], symbol, purity, collections, context.CancellationToken)
-                    || Moves(location, operations[k], purity))
-                {
-                    break;
-                }
+                ScanForOverwrite(context, operations, i, first, TargetOf(operations[i], first), LocationOf(operations[i], first.Target), constructor, purity, collections);
             }
+
+            foreach (var inner in ChainedWrites(operations[i], purity, collections, context.CancellationToken))
+            {
+                ScanForOverwrite(context, operations, i, inner, inner.Target.Syntax.GetLocation(), LocationOf(inner.Target), constructor, purity, collections);
+            }
+        }
+    }
+
+    private static void ScanForOverwrite(
+        OperationAnalysisContext context,
+        ImmutableArray<IOperation> operations,
+        int i,
+        ISimpleAssignmentOperation write,
+        Location written,
+        ReadSet[] location,
+        IMethodSymbol? constructor,
+        PurityOracle purity,
+        HashSet<INamedTypeSymbol> collections)
+    {
+        if (!IsTracked(write.Target, purity, collections) || ReadSet.RootSymbol(write.Target) is not { } symbol)
+        {
+            return;
+        }
+
+        var writingConstructor = write.Target is IMemberReferenceOperation { Instance: IInstanceReferenceOperation } ? constructor : null;
+        for (var k = i + 1; k < operations.Length; k++)
+        {
+            if (AsAssignment(operations[k]) is not { } next)
+            {
+                break;
+            }
+
+            if (SameTarget(operations[i], write, operations[k]))
+            {
+                if (!References(next.Value, symbol, writingConstructor) && !CallsSourceReader(next.Value, symbol))
+                {
+                    var overwrite = TargetOf(operations[k], next);
+                    context.ReportDiagnostic(Diagnostic.Create(
+                        Descriptors.OverwrittenBeforeUse,
+                        overwrite,
+                        additionalLocations: [written],
+                        messageArgs: [Quote.Of(operations[k].Syntax, overwrite.SourceSpan)]));
+                }
+
+                break;
+            }
+
+            if (References(operations[k], symbol, writingConstructor)
+                || CallsImpure(operations[k], symbol, purity, collections, context.CancellationToken)
+                || Moves(location, operations[k], purity))
+            {
+                break;
+            }
+        }
+    }
+
+    // 'd0 = d1 = 0;' writes 'd1' as well as 'd0', and a later 'd1 = …' makes that inner write just as dead.
+    // The outer assignments of the chain run after the inner one, so a hand-written setter among them may read the inner target and ends the walk.
+    private static IEnumerable<ISimpleAssignmentOperation> ChainedWrites(IOperation statement, PurityOracle purity, HashSet<INamedTypeSymbol> collections, CancellationToken cancellationToken)
+    {
+        if (statement is not IExpressionStatementOperation { Operation: ISimpleAssignmentOperation { IsRef: false } outer })
+        {
+            yield break;
+        }
+
+        for (var current = outer; SkipConversions(current.Value) is ISimpleAssignmentOperation { IsRef: false } inner; current = inner)
+        {
+            if (current.Target is IPropertyReferenceOperation property
+                && RunsSetter(property, collections)
+                && (ReadSet.RootSymbol(inner.Target) is not { } innerSymbol || !IsInert(property, innerSymbol, purity, collections, cancellationToken)))
+            {
+                yield break;
+            }
+
+            yield return inner;
         }
     }
 
@@ -250,10 +294,16 @@ public sealed class RepeatedAssignmentAnalyzer : DiagnosticAnalyzer
 
     // Within a null-conditional access the target only holds a placeholder for the receiver.
     // The receivers are therefore compared level by level.
-    private static bool SameTarget(IOperation first, IOperation next)
+    // An inner write of a chain is never under a null-conditional access, so only a plain later assignment can repeat its target.
+    private static bool SameTarget(IOperation first, ISimpleAssignmentOperation write, IOperation next)
     {
-        var x = ((IExpressionStatementOperation)first).Operation;
         var y = ((IExpressionStatementOperation)next).Operation;
+        if (!ReferenceEquals(AsAssignment(first), write))
+        {
+            return y is ISimpleAssignmentOperation plain && OperationEquivalence.AreEquivalent(write.Target, plain.Target);
+        }
+
+        var x = ((IExpressionStatementOperation)first).Operation;
         while (x is IConditionalAccessOperation xAccess && y is IConditionalAccessOperation yAccess)
         {
             if (!OperationEquivalence.AreEquivalent(xAccess.Operation, yAccess.Operation))
