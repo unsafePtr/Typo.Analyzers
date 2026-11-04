@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Diagnostics;
 using Microsoft.CodeAnalysis.Operations;
@@ -23,6 +24,8 @@ namespace Typo.Analyzers;
 /// Framework values, renamed enclosing calls and squares such as Multiply(x, x) guard pairs only.
 /// Declaration chains such as <c>f8 = f4 * f4; f12 = f8 * f4</c> are skipped in runs and pairs alike.
 /// The suggested name must exist in scope, which suppresses the classic false positive <c>halfWidth -= borderWidth; halfHeight -= borderWidth;</c> when there is no borderHeight.
+/// It must also make a line that compiles and does not write a field to itself.
+/// Only when no candidate of a run or pair has such a name may a local or parameter copy be suggested a field _name, m_name or s_name, or else an unread parameter.
 /// Runs are scanned in statement blocks (expression statements and declarations), object initializers, &amp;&amp;/|| chains and argument lists.
 /// </remarks>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -44,6 +47,8 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     // Exact first, so the partial modes only add findings such as minX/maxY where key names wrap the other fragment.
     private static readonly Match[] s_modes = [Match.Exact, Match.KeyEndsWith, Match.KeyStartsWith];
 
+    private static readonly string[] s_fieldPrefixes = ["_", "m_", "s_"];
+
     private static readonly Comparison<IOperation> s_byParameterOrdinal =
         static (x, y) => ((IArgumentOperation)x).Parameter!.Ordinal.CompareTo(((IArgumentOperation)y).Parameter!.Ordinal);
 
@@ -52,6 +57,12 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         Exact,
         KeyEndsWith,
         KeyStartsWith,
+    }
+
+    private enum Tier
+    {
+        PrefixedField,
+        UnreadParameter,
     }
 
     [Flags]
@@ -475,6 +486,7 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
             affixes[c] = HasData(rows, slots, first, count, c) ? null : Affixes(names, count, c);
         }
 
+        List<Fallback>? fallbacks = null;
         for (var key = 0; key < columns; key++)
         {
             if (affixes[key] is not { } keyAffix)
@@ -519,14 +531,21 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                         + oddName.Substring(oddName.Length - otherAffix.Suffix);
 
                     var slot = slots[rows[first + odd].Start + other];
-                    if (Exists(slot, expected))
+                    if (CanSuggest(slot, expected))
                     {
                         Report(context, Descriptors.SimilarLineAnomaly, slot, oddName, expected);
                         return;
                     }
+
+                    if (CanFallBack(slot))
+                    {
+                        (fallbacks ??= []).Add(new Fallback(slot, oddName, expected));
+                    }
                 }
             }
         }
+
+        ReportFallback(context, Descriptors.SimilarLineAnomaly, fallbacks);
     }
 
     // The second row is the one reported, because a copy is usually made from the line above and then edited.
@@ -580,9 +599,10 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
         // The copy usually follows the renamed name, as b.X in 'Y = b.X'.
         // It may also precede it, as Width in 'Width == o.Height' after 'Width == o.Width'; those columns are tried last.
+        List<Fallback>? fallbacks = null;
         for (var c = key + 1; c < columns; c++)
         {
-            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to))
+            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to, ref fallbacks))
             {
                 return;
             }
@@ -590,11 +610,13 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
         for (var c = 0; c < key; c++)
         {
-            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to))
+            if (TryReportCopy(context, slots, a, b, columns, key, c, from, to, ref fallbacks))
             {
                 return;
             }
         }
+
+        ReportFallback(context, Descriptors.SimilarPairAnomaly, fallbacks);
     }
 
     private static bool TryReportCopy(
@@ -606,7 +628,8 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         int key,
         int c,
         ReadOnlySpan<char> from,
-        ReadOnlySpan<char> to)
+        ReadOnlySpan<char> to,
+        ref List<Fallback>? fallbacks)
     {
         var copy = slots[b + c];
         if (!IsCopyCandidate(slots[a + c], copy) || IsInsideRenamedColumn(slots, a, b, columns, key, copy.Operation) || IsMemberOfRenamedReceiver(slots, a, b, columns, copy.Operation))
@@ -631,8 +654,18 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         var expected = name.Substring(0, at) + replacement + name.Substring(at + from.Length);
 
         // In X = p.Y + p.X; Y = p.Y + p.X both names already appear on both lines, so the second line was edited on purpose.
-        if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected) || !Exists(copy, expected))
+        if (IsSharedName(slots, a, b, columns, expected) || IsDeliberateRepeat(slots[b], copy, expected))
         {
+            return false;
+        }
+
+        if (!CanSuggest(copy, expected))
+        {
+            if (CanFallBack(copy))
+            {
+                (fallbacks ??= []).Add(new Fallback(copy, name, expected));
+            }
+
             return false;
         }
 
@@ -1202,33 +1235,20 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         return fragment;
     }
 
-    // A suggested local must already be declared, and a suggested member must be the same kind of member as the one it replaces.
-    private static bool Exists(Slot slot, string expected)
+    // A suggested name must exist where the copy stands and pass IsUsable, and a suggested member must be the same kind of member as the one it replaces.
+    // This runs only for a finding about to be reported.
+    private static bool CanSuggest(Slot slot, string expected)
     {
+        var copy = slot.Operation;
         switch (slot.Symbol)
         {
             case null:
                 return true;
 
             case ILocalSymbol or IParameterSymbol:
-            {
-                if (slot.Operation.SemanticModel is not { } model)
-                {
-                    return false;
-                }
-
-                // Lookup also returns locals declared later in the block, which the line cannot have meant.
-                var position = slot.Operation.Syntax.SpanStart;
-                foreach (var symbol in model.LookupSymbols(position, name: expected))
-                {
-                    if (symbol is not ILocalSymbol local || DeclaredBefore(local, position))
-                    {
-                        return true;
-                    }
-                }
-
-                return false;
-            }
+                return copy.SemanticModel is { } model
+                    && FirstDeclared(model, copy.Syntax.SpanStart, expected) is { } symbol
+                    && (!Site.TryCreate(copy, slot.Symbol.Name, out var site) || IsUsable(model, site, symbol, expected));
 
             default:
                 for (var type = slot.Symbol.ContainingType; type is not null; type = type.BaseType)
@@ -1237,13 +1257,389 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                     {
                         if (IsSameKind(slot.Symbol, member))
                         {
-                            return true;
+                            return copy.SemanticModel is not { } semanticModel
+                                || !Site.TryCreate(copy, slot.Symbol.Name, out var memberSite)
+                                || IsUsable(semanticModel, memberSite, member, expected);
                         }
                     }
                 }
 
                 return false;
         }
+    }
+
+    private static bool CanFallBack(Slot slot) => slot.Symbol is ILocalSymbol or IParameterSymbol;
+
+    // A local or parameter copy whose renamed name is unusable may have meant the field _name, m_name or s_name, or a parameter its function never reads.
+    // Fallbacks are tried only after every candidate of the run or pair failed with its plain name, so a plain name always wins.
+    // Each tier is tried on every candidate, in the order the caller found them, before the next tier.
+    private static void ReportFallback(OperationAnalysisContext context, DiagnosticDescriptor descriptor, List<Fallback>? fallbacks)
+    {
+        if (fallbacks is null)
+        {
+            return;
+        }
+
+        for (var tier = Tier.PrefixedField; tier <= Tier.UnreadParameter; tier++)
+        {
+            foreach (var fallback in fallbacks)
+            {
+                if (TryFallback(fallback.Slot, fallback.Expected, tier, out var suggestion))
+                {
+                    Report(context, descriptor, fallback.Slot, fallback.Name, suggestion);
+                    return;
+                }
+            }
+        }
+    }
+
+    private static bool TryFallback(Slot slot, string expected, Tier tier, out string suggestion)
+    {
+        suggestion = expected;
+        var copy = slot.Operation;
+        if (copy.SemanticModel is not { } model || !Site.TryCreate(copy, slot.Symbol!.Name, out var site) || !site.Bindable)
+        {
+            return false;
+        }
+
+        if (tier == Tier.UnreadParameter)
+        {
+            if (UnusedParameter(model, site) is not { } parameter)
+            {
+                return false;
+            }
+
+            suggestion = parameter.Name;
+            return true;
+        }
+
+        var position = copy.Syntax.SpanStart;
+        foreach (var prefix in s_fieldPrefixes)
+        {
+            var name = prefix + expected;
+            if (FirstDeclared(model, position, name) is IFieldSymbol field
+                && IsInheritedBy(model, site, field)
+                && !IsBackingField(copy, field)
+                && IsUsable(model, site, field, name))
+            {
+                suggestion = name;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Lookup also returns locals declared later in the block, which the line cannot have meant.
+    private static ISymbol? FirstDeclared(SemanticModel model, int position, string name)
+    {
+        foreach (var symbol in model.LookupSymbols(position, name: name))
+        {
+            if (symbol is not ILocalSymbol local || DeclaredBefore(local, position))
+            {
+                return symbol;
+            }
+        }
+
+        return null;
+    }
+
+    // A suggestion is unusable when it writes a field to itself or when the edited line would not compile.
+    // A property assigned to itself still runs its accessors, so only fields count as self-assignments.
+    private static bool IsUsable(SemanticModel model, Site site, ISymbol suggested, string name)
+    {
+        if (suggested is IFieldSymbol field && WritesItself(site.Copy, field))
+        {
+            return false;
+        }
+
+        if (!site.Bindable)
+        {
+            return true;
+        }
+
+        if (IsInstanceMember(suggested)
+            && HasImplicitReceiver(site.Name)
+            && (!HasInstance(site.Replaced) || !IsInheritedBy(model, site, suggested)))
+        {
+            return false;
+        }
+
+        return Compiles(model, site, name, out _);
+    }
+
+    // The copy is the whole value of 'f = copy' or 'this.f = copy', and the suggestion is f, so the fix would read 'f = f'.
+    private static bool WritesItself(IOperation copy, IFieldSymbol field) =>
+        copy is ILocalReferenceOperation or IParameterReferenceOperation or IMemberReferenceOperation { Instance: null or IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance } }
+        && AssignedTarget(copy) is IFieldReferenceOperation { Instance: null or IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance } } target
+        && SymbolEqualityComparer.Default.Equals(target.Field.OriginalDefinition, field.OriginalDefinition);
+
+    // 'Total = _total' is no fix when Total's getter returns _total or its setter assigns it.
+    // Only the syntax is read, because the property may be declared in another tree.
+    private static bool IsBackingField(IOperation copy, IFieldSymbol field)
+    {
+        if (AssignedTarget(copy) is not IPropertyReferenceOperation { Instance: null or IInstanceReferenceOperation { ReferenceKind: InstanceReferenceKind.ContainingTypeInstance } } target)
+        {
+            return false;
+        }
+
+        foreach (var reference in target.Property.DeclaringSyntaxReferences)
+        {
+            if (reference.GetSyntax() is not BasePropertyDeclarationSyntax property)
+            {
+                continue;
+            }
+
+            if (property is PropertyDeclarationSyntax { ExpressionBody.Expression: { } body } && Names(body, field.Name))
+            {
+                return true;
+            }
+
+            foreach (var accessor in property.AccessorList?.Accessors ?? default)
+            {
+                var getter = accessor.IsKind(SyntaxKind.GetAccessorDeclaration);
+                if (getter && accessor.ExpressionBody?.Expression is { } returned && Names(returned, field.Name))
+                {
+                    return true;
+                }
+
+                foreach (var node in accessor.DescendantNodes())
+                {
+                    if (getter
+                        ? node is ReturnStatementSyntax { Expression: { } value } && Names(value, field.Name)
+                        : node is AssignmentExpressionSyntax assignment && Names(assignment.Left, field.Name))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool Names(ExpressionSyntax expression, string name) => expression switch
+    {
+        IdentifierNameSyntax identifier => string.Equals(identifier.Identifier.ValueText, name, StringComparison.Ordinal),
+        MemberAccessExpressionSyntax { Expression: ThisExpressionSyntax } access => string.Equals(access.Name.Identifier.ValueText, name, StringComparison.Ordinal),
+        _ => false,
+    };
+
+    private static IOperation? AssignedTarget(IOperation copy)
+    {
+        var value = copy;
+        while (value.Parent is IConversionOperation { IsImplicit: true } conversion)
+        {
+            value = conversion;
+        }
+
+        return value.Parent is ISimpleAssignmentOperation assignment && assignment.Value == value ? assignment.Target : null;
+    }
+
+    private static bool IsInstanceMember(ISymbol symbol) =>
+        !symbol.IsStatic && symbol.ContainingSymbol is INamedTypeSymbol && symbol.Kind is SymbolKind.Field or SymbolKind.Property or SymbolKind.Event or SymbolKind.Method;
+
+    private static bool HasImplicitReceiver(SyntaxToken name) =>
+        name.Parent is SimpleNameSyntax simple
+        && simple.Parent is not MemberBindingExpressionSyntax
+        && !(simple.Parent is MemberAccessExpressionSyntax access && access.Name == simple);
+
+    // 'this' does not exist in constructor initializers, a primary constructor's base arguments, field and property initializers, and static members, lambdas and local functions.
+    // nameof may name an instance member anywhere.
+    private static bool HasInstance(SyntaxNode node)
+    {
+        for (var (child, current) = (node, node.Parent); current is not null; (child, current) = (current, current.Parent))
+        {
+            switch (current)
+            {
+                case InvocationExpressionSyntax { Expression: IdentifierNameSyntax { Identifier.ValueText: "nameof" } }:
+                    return true;
+
+                case ConstructorInitializerSyntax or PrimaryConstructorBaseTypeSyntax or BaseFieldDeclarationSyntax or GlobalStatementSyntax:
+                    return false;
+
+                case PropertyDeclarationSyntax property when child == property.Initializer:
+                    return false;
+
+                case AnonymousFunctionExpressionSyntax lambda when lambda.Modifiers.Any(SyntaxKind.StaticKeyword):
+                    return false;
+
+                case LocalFunctionStatementSyntax function when function.Modifiers.Any(SyntaxKind.StaticKeyword):
+                    return false;
+
+                case BaseTypeDeclarationSyntax:
+                    return true;
+
+                case MemberDeclarationSyntax member:
+                    return !member.Modifiers.Any(SyntaxKind.StaticKeyword);
+            }
+        }
+
+        return true;
+    }
+
+    // An outer type's instance members are in scope by name but cannot be read without an instance of that type.
+    private static bool IsInheritedBy(SemanticModel model, Site site, ISymbol member)
+    {
+        var enclosing = model.GetEnclosingSymbol(site.Replaced.SpanStart);
+        if (enclosing is null || member.ContainingType is not { } owner)
+        {
+            return true;
+        }
+
+        var code = enclosing as INamedTypeSymbol ?? enclosing.ContainingType;
+        for (var type = code; type is not null; type = type.BaseType)
+        {
+            if (SymbolEqualityComparer.Default.Equals(type.OriginalDefinition, owner.OriginalDefinition))
+            {
+                return true;
+            }
+        }
+
+        foreach (var implemented in code?.AllInterfaces ?? [])
+        {
+            if (SymbolEqualityComparer.Default.Equals(implemented.OriginalDefinition, owner.OriginalDefinition))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // Binds the copy's expression with the new name in place of the old one, as the compiler would bind the edited line.
+    // Only an edit is blamed: an expression that does not bind before the edit, as in code being typed, keeps the finding.
+    private static bool Compiles(SemanticModel model, Site site, string name, out ExpressionSyntax edited)
+    {
+        var token = site.Name;
+
+        // A keyword such as 'in' is written '@in'; VerbatimIdentifier adds the '@' itself and throws for text that already starts with one.
+        var replacement = SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None
+            ? SyntaxFactory.Identifier(token.LeadingTrivia, name, token.TrailingTrivia)
+            : SyntaxFactory.VerbatimIdentifier(token.LeadingTrivia, name, name, token.TrailingTrivia);
+        var original = site.Replaced;
+        var position = original.SpanStart;
+        edited = original.ReplaceToken(token, replacement);
+
+        var symbol = model.GetSpeculativeSymbolInfo(position, edited, SpeculativeBindingOption.BindAsExpression);
+        if (symbol.Symbol is INamespaceOrTypeSymbol
+            || (symbol.Symbol is null && symbol.CandidateSymbols.IsEmpty && IsError(model.GetSpeculativeTypeInfo(position, edited, SpeculativeBindingOption.BindAsExpression).Type)))
+        {
+            var before = model.GetSymbolInfo(original);
+            if (before.Symbol is not null || !before.CandidateSymbols.IsEmpty || !IsError(model.GetTypeInfo(original).Type))
+            {
+                return false;
+            }
+        }
+
+        switch (original.Parent)
+        {
+            case AssignmentExpressionSyntax assignment when assignment.IsKind(SyntaxKind.SimpleAssignmentExpression)
+                && assignment.Right == original
+                && assignment.Left is not IdentifierNameSyntax { Identifier.ValueText: "_" }:
+            case EqualsValueClauseSyntax { Parent: VariableDeclaratorSyntax { Parent: VariableDeclarationSyntax { Type.IsVar: false } } or PropertyDeclarationSyntax }:
+                return model.GetTypeInfo(original).ConvertedType is not { } type || IsError(type) || model.ClassifyConversion(position, edited, type).IsImplicit;
+
+            case ArgumentSyntax { Parent: BaseArgumentListSyntax { Parent: { } call } }:
+                return CallBinds(model, call, token, replacement);
+
+            default:
+                return true;
+        }
+    }
+
+    // Overloads and type inference may pick another method for the new argument, so the whole call is bound again.
+    // A target-typed 'new(...)' cannot be bound on its own and is left alone.
+    private static bool CallBinds(SemanticModel model, SyntaxNode call, SyntaxToken token, SyntaxToken replacement)
+    {
+        var edited = call.ReplaceToken(token, replacement);
+        SymbolInfo? after = edited switch
+        {
+            ImplicitObjectCreationExpressionSyntax => null,
+            ExpressionSyntax expression => model.GetSpeculativeSymbolInfo(call.SpanStart, expression, SpeculativeBindingOption.BindAsExpression),
+            ConstructorInitializerSyntax initializer => model.GetSpeculativeSymbolInfo(call.SpanStart, initializer),
+            PrimaryConstructorBaseTypeSyntax baseType => model.GetSpeculativeSymbolInfo(call.SpanStart, baseType),
+            _ => null,
+        };
+
+        return after is not { Symbol: null } || model.GetSymbolInfo(call).Symbol is null;
+    }
+
+    private static bool IsError(ITypeSymbol? type) => type is null or { TypeKind: TypeKind.Error };
+
+    // A parameter that the enclosing function never reads may be the one the copy was meant to be, as 'value' in C(float constant, float value).
+    // Discards such as _ or _1 are unused on purpose, and the parameter must convert implicitly to the type the copy is converted to.
+    // A primary constructor's parameters may be read anywhere in the type, so they are never suggested.
+    private static IParameterSymbol? UnusedParameter(SemanticModel model, Site site)
+    {
+        var (function, body) = EnclosingFunction(model, site.Copy);
+        if (function is null || body is null || model.GetTypeInfo(site.Replaced).ConvertedType is not { } type || IsError(type))
+        {
+            return null;
+        }
+
+        HashSet<IParameterSymbol>? read = null;
+        foreach (var parameter in function.Parameters)
+        {
+            if (IsDiscardName(parameter.Name))
+            {
+                continue;
+            }
+
+            if (read is null)
+            {
+                read = new HashSet<IParameterSymbol>(SymbolEqualityComparer.Default);
+                foreach (var operation in body.Descendants())
+                {
+                    if (operation is IParameterReferenceOperation reference)
+                    {
+                        read.Add(reference.Parameter);
+                    }
+                }
+            }
+
+            if (!read.Contains(parameter)
+                && Compiles(model, site, parameter.Name, out var edited)
+                && model.ClassifyConversion(site.Replaced.SpanStart, edited, type).IsImplicit)
+            {
+                return parameter;
+            }
+        }
+
+        return null;
+    }
+
+    private static (IMethodSymbol? Function, IOperation? Body) EnclosingFunction(SemanticModel model, IOperation copy)
+    {
+        for (var operation = copy.Parent; operation is not null; operation = operation.Parent)
+        {
+            switch (operation)
+            {
+                case IAnonymousFunctionOperation lambda:
+                    return (lambda.Symbol, lambda);
+
+                case ILocalFunctionOperation local:
+                    return (local.Symbol, local);
+
+                case IMethodBodyBaseOperation body when body.Parent is null && body.Syntax is not TypeDeclarationSyntax:
+                    return (model.GetDeclaredSymbol(body.Syntax) as IMethodSymbol, body);
+            }
+        }
+
+        return default;
+    }
+
+    private static bool IsDiscardName(string name)
+    {
+        foreach (var c in name)
+        {
+            if (c != '_' && !char.IsDigit(c))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static bool DeclaredBefore(ILocalSymbol local, int position)
@@ -1304,6 +1700,87 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
     private readonly record struct Row(int Hash, int Start, int Count);
 
+    // A candidate whose plain name failed and that may still be reported with a fallback name.
+    private readonly record struct Fallback(Slot Slot, string Name, string Expected);
+
     // A key-only slot (a declared local or a parameter name) can identify a row but is never the name reported.
     private readonly record struct Slot(IOperation Operation, ISymbol? Symbol, object? Constant, bool IsData, bool KeyOnly = false);
+
+    // Where a suggestion would go: the copy's name token, and the expression the edit changes, which runs from the copy up through every member access, call or index the copy is the receiver of.
+    // A member binding (?.X) or a member set in an object initializer has no meaning on its own, so such a site is not Bindable and only the self-assignment test applies.
+    private readonly record struct Site(IOperation Copy, SyntaxToken Name, ExpressionSyntax Replaced, bool Bindable)
+    {
+        public static bool TryCreate(IOperation copy, string name, out Site site)
+        {
+            site = default;
+            if (copy.Syntax is not ExpressionSyntax expression
+                || NameToken(expression) is not { } token
+                || !string.Equals(token.ValueText, name, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var replaced = expression;
+            while (replaced.Parent is ExpressionSyntax parent && IsReceiver(parent, replaced))
+            {
+                replaced = parent;
+            }
+
+            var bindable = !StartsWithBinding(replaced)
+                && !(replaced.Parent is AssignmentExpressionSyntax { Parent: InitializerExpressionSyntax } member && member.Left == replaced);
+            site = new Site(copy, token, replaced, bindable);
+            return true;
+        }
+
+        private static SyntaxToken? NameToken(ExpressionSyntax expression) => expression switch
+        {
+            SimpleNameSyntax simple => simple.Identifier,
+            MemberAccessExpressionSyntax access => access.Name.Identifier,
+            MemberBindingExpressionSyntax binding => binding.Name.Identifier,
+            InvocationExpressionSyntax invocation => NameToken(invocation.Expression),
+            _ => null,
+        };
+
+        private static bool IsReceiver(ExpressionSyntax parent, ExpressionSyntax child) => parent switch
+        {
+            MemberAccessExpressionSyntax access => access.Expression == child,
+            InvocationExpressionSyntax invocation => invocation.Expression == child,
+            ElementAccessExpressionSyntax element => element.Expression == child,
+            ConditionalAccessExpressionSyntax => true,
+            PostfixUnaryExpressionSyntax postfix => postfix.IsKind(SyntaxKind.SuppressNullableWarningExpression),
+            ParenthesizedExpressionSyntax => true,
+            _ => false,
+        };
+
+        private static bool StartsWithBinding(ExpressionSyntax expression)
+        {
+            while (true)
+            {
+                switch (expression)
+                {
+                    case MemberBindingExpressionSyntax or ElementBindingExpressionSyntax:
+                        return true;
+
+                    case MemberAccessExpressionSyntax access:
+                        expression = access.Expression;
+                        continue;
+
+                    case InvocationExpressionSyntax invocation:
+                        expression = invocation.Expression;
+                        continue;
+
+                    case ElementAccessExpressionSyntax element:
+                        expression = element.Expression;
+                        continue;
+
+                    case PostfixUnaryExpressionSyntax postfix:
+                        expression = postfix.Operand;
+                        continue;
+
+                    default:
+                        return false;
+                }
+            }
+        }
+    }
 }

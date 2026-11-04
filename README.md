@@ -67,12 +67,16 @@ The analyzers use only ordinal and invariant string operations, and tests run th
 - TYPO0011 and TYPO0012 skip a call whose arguments are plain names that spell the containing member's name in order, as the swizzle `Yyzw => new(Y, Y, Z, W)` does; `Xyzw => new(Y, Y, Z, W)` still fires.
 - TYPO0012 never pairs literal copies, all-lower-case compound names such as `dx` and `dy`, or names where one extends the other, such as `Name` and `DisplayName`.
 - TYPO0012 skips pairs that also differ in a number, framework values such as `float.MaxValue`, `Index.Start` or `Vector2.UnitX`, and names inside an access or call the second line already renamed.
-- TYPO0012 reports `f(x, x)` only when the `y` it should have been is never used, so a deliberate square such as `Multiply(x, x)` stays silent.
+- TYPO0012 reports `f(x, x)` only when the `y` it should have been is never used, so a deliberate square such as `Multiply(x, x)` stays silent unless the function has a parameter it never reads that could stand in.
+- TYPO0011 and TYPO0012 report only a suggestion that compiles and does not assign a field to itself, so `this.dv = constant` after `this.constant = constant` is silent when the only `dv` is that field and every parameter is read.
+- When the renamed name of a local or parameter copy cannot be used, they suggest a field `_name`, `m_name` or `s_name` that is neither the target nor its backing field, and then a parameter the function never reads; a candidate with a usable plain name always wins over these.
+- The type of a suggestion is checked only where the target type is fixed: an assignment, an explicitly typed declaration or a call argument.
 - TYPO0012 does not report the second of two lines when the first holds one value twice, as in `Move(d.X, d.X); Move(d.X, d.Y)`, because the second line is then the first one's fix.
 - Declarations that read a local declared earlier in the same run, as in `f8 = f4 * f4; f12 = f8 * f4`, are steps of one computation and never form a run.
 - A shared receiver whose other names were renamed still fires, as in `LoadUnsafe(ref yRef, x.Length - n)` after a check that both spans have equal length.
 - TYPO0011 needs one column whose values all differ, so a two-by-two block such as `a.Stock = a.Sum(x => x.Stock); a.Reserved = a.Sum(x => x.Stock); b.Stock = …; b.Reserved = …` forms no run.
 - TYPO0009 stays silent when the loop variable is used for anything but indexing other collections, as in `(i == 0 ? "" : ",") + Name(items[0])`, because `if (i == 0 && items[0] > 0)` has the same shape on purpose.
+- Operands of `+` and `*` match in either order, except string concatenation, delegate combination and the `Matrix3x2`, `Matrix4x4` and `Quaternion` products of System.Numerics; another library's matrix product, such as WPF's `Matrix`, is still taken to commute.
 - TYPO0001 does not treat `x.HasValue` and `x != null` as the same test; such pairs are redundant rather than copy-paste mistakes.
 - TYPO0001 leaves a comparison of a local, parameter or field with itself, as in `count < count`, to the compiler's CS1718, which reports exactly these; properties, elements and calls stay TYPO0001's.
 - Swapped arguments matched by parameter name are left to Sonar S2234.
