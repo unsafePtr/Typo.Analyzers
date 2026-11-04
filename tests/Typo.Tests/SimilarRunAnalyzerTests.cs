@@ -1549,6 +1549,35 @@ public sealed class SimilarRunAnalyzerTests
         Pair("p.X", "p.Y", 1));
 
     [Fact]
+    public Task Pair_SuggestsANameThatIsAKeyword() => Verify.VerifyAsync(
+        """
+        using System.IO;
+
+        public static class Copy
+        {
+            public static void Compare(Stream src, Stream @in)
+            {
+                var srcBytes = new byte[(int)src.Length];
+                var inBytes = new byte[(int){|#0:src|}.Length];
+            }
+        }
+
+        public sealed class Holder
+        {
+            private int _first;
+            private int _second;
+
+            public Holder(int first, int @int)
+            {
+                _first = first;
+                _second = {|#1:first|};
+            }
+        }
+        """,
+        Pair("src", "in"),
+        Pair("first", "int", 1));
+
+    [Fact]
     public Task Pair_ParameterPassedTwice() => Verify.VerifyAsync(
         """
         public static class C

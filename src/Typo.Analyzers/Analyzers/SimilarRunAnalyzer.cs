@@ -1512,9 +1512,11 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     private static bool Compiles(SemanticModel model, Site site, string name, out ExpressionSyntax edited)
     {
         var token = site.Name;
+
+        // A keyword such as 'in' is written '@in'; VerbatimIdentifier adds the '@' itself and throws for text that already starts with one.
         var replacement = SyntaxFacts.GetKeywordKind(name) == SyntaxKind.None
             ? SyntaxFactory.Identifier(token.LeadingTrivia, name, token.TrailingTrivia)
-            : SyntaxFactory.VerbatimIdentifier(token.LeadingTrivia, "@" + name, name, token.TrailingTrivia);
+            : SyntaxFactory.VerbatimIdentifier(token.LeadingTrivia, name, name, token.TrailingTrivia);
         var original = site.Replaced;
         var position = original.SpanStart;
         edited = original.ReplaceToken(token, replacement);
