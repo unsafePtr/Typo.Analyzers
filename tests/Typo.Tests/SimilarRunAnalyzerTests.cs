@@ -2555,7 +2555,7 @@ public sealed class SimilarRunAnalyzerTests
         Anomaly("fields", "qualifiers"));
 
     [Fact]
-    public Task SilkNet_LerpPairsTheSameRowOfBothMatrices() => Verify.VerifyAsync(
+    public Task LerpPairsTheSameRowOfBothMatrices() => Verify.VerifyAsync(
         """
         public struct Vector3D<T> where T : unmanaged
         {
@@ -2593,7 +2593,7 @@ public sealed class SimilarRunAnalyzerTests
         """);
 
     [Fact]
-    public Task SilkNet_ThirdResultRowRepeatsTheSecondRow() => Verify.VerifyAsync(
+    public Task ThirdResultRowRepeatsTheSecondRow() => Verify.VerifyAsync(
         """
         public struct Vec2
         {
