@@ -1590,6 +1590,95 @@ public sealed class SimilarRunAnalyzerTests
         Pair("left", "right"));
 
     [Fact]
+    public Task ConditionalCallRepeatsTheStartIndex() => Verify.VerifyAsync(
+        """
+        public sealed class DrawContext
+        {
+            public void Draw(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
+            {
+            }
+        }
+
+        public sealed class Renderer
+        {
+            private DrawContext? context;
+
+            public void Draw(int indexCountPerInstance, int instanceCount, int startIndexLocation, int baseVertexLocation, int startInstanceLocation)
+            {
+                context?.Draw(indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, {|#0:startIndexLocation|});
+            }
+        }
+        """,
+        Anomaly("startIndexLocation", "startInstanceLocation"));
+
+    [Theory]
+    [InlineData("context?.Process", "")]
+    [InlineData("context?.Child?.Process", "")]
+    [InlineData("context?.Get().Process", "")]
+    [InlineData("context?.Get()?.Process", "")]
+    [InlineData("contexts?[0]?.Process", "")]
+    [InlineData("context?.Process", ".ToString()")]
+    public Task ConditionalCallsKeepArgumentPairs(string call, string suffix) => Verify.VerifyAsync(
+        $$"""
+        public sealed class Context
+        {
+            public Context? Child => this;
+            public Context Get() => this;
+            public int Process(int left, int right) => left - right;
+
+            public static object? Run(Context? context, Context?[]? contexts, int left, int right) =>
+                {{call}}(left, {|#0:left|}){{suffix}};
+        }
+        """,
+        Pair("left", "right"));
+
+    [Fact]
+    public Task ConditionalCallOnNullableValueKeepsArgumentPair() => Verify.VerifyAsync(
+        """
+        public readonly struct Context
+        {
+            public int Process(int left, int right) => left - right;
+
+            public static int? Run(Context? context, int left, int right) => context?.Process(left, {|#0:left|});
+        }
+        """,
+        Pair("left", "right"));
+
+    [Theory]
+    [InlineData("context?.Process")]
+    [InlineData("context?.Child?.Process")]
+    [InlineData("context?.Get().Process")]
+    [InlineData("contexts?[0]?.Process")]
+    public Task ConditionalCallsRejectArgumentsThatDoNotBind(string call) => Verify.VerifyAsync(
+        $$"""
+        public sealed class Context
+        {
+            public Context? Child => this;
+            public Context Get() => this;
+            public int Process(int left, int right) => left - right;
+
+            public static object? Run(Context? context, Context?[]? contexts, int left, string right) =>
+                {{call}}(left, left);
+        }
+        """);
+
+    [Fact]
+    public Task ConditionalCallsAllowAnotherOverloadOrTypeArgument() => Verify.VerifyAsync(
+        """
+        public sealed class Context
+        {
+            public int Process(int left, int right) => left - right;
+            public int Process(int left, string right) => left - right.Length;
+            public T Pick<T>(T first, T second) => first;
+
+            public static int? Overload(Context? context, int left, string right) => context?.Process(left, {|#0:left|});
+            public static long? Generic(Context? context, int first, long second) => context?.Pick(first, {|#1:first|});
+        }
+        """,
+        Pair("left", "right"),
+        Pair("first", "second", 1));
+
+    [Fact]
     public Task Pair_StringKeys() => Verify.VerifyAsync(
         """
         public sealed class Parameters
