@@ -1550,9 +1550,26 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
 
     // Overloads and type inference may pick another method for the new argument, so the whole call is bound again.
     // A target-typed 'new(...)' cannot be bound on its own and is left alone.
+    // Member bindings need their enclosing conditional-access chain while the edited inner call is bound.
     private static bool CallBinds(SemanticModel model, SyntaxNode call, SyntaxToken token, SyntaxToken replacement)
     {
         var edited = call.ReplaceToken(token, replacement);
+        var context = call;
+        for (var parent = call.Parent; parent is ExpressionSyntax; parent = parent.Parent)
+        {
+            if (parent is ConditionalAccessExpressionSyntax)
+            {
+                context = parent;
+            }
+        }
+
+        if (context != call)
+        {
+            var annotation = new SyntaxAnnotation();
+            var root = context.ReplaceNode(call, edited.WithAdditionalAnnotations(annotation));
+            edited = root.GetAnnotatedNodes(annotation).Single();
+        }
+
         SymbolInfo? after = edited switch
         {
             ImplicitObjectCreationExpressionSyntax => null,
