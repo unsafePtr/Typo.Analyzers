@@ -6,7 +6,7 @@
     <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
     <IsRoslynComponent>true</IsRoslynComponent>
     <PackageId>Typo.Analyzers</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Description>Roslyn analyzers that find copy-paste and typo bugs.</Description>
     <Authors>Nikolay Zdravkov</Authors>
     <Copyright>Copyright (c) Nikolay Zdravkov</Copyright>
