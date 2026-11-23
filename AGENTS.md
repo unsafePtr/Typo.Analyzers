@@ -40,6 +40,8 @@ The analyzers share the core in `src/Typo.Analyzers/Core`; IdenticalBranchesAnal
 - `Limits`: depth and stack guards, so huge generated expressions cannot overflow the compiler's stack.
 - `StatementList`: the lists of neighbouring statements that rules compare, from blocks and switch sections alike.
 - `Quote`: the source text of a diagnostic message on one line, so MSBuild's line-by-line log does not cut it.
+- `Words`: where the words of an identifier begin and end, as in `max|Row|Count`.
+- `Speculation`: whether a call still binds after a suggested edit, with overload resolution and type inference run again.
 
 ## Changing a rule
 

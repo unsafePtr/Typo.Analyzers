@@ -638,8 +638,8 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         }
 
         var name = copy.Symbol!.Name;
-        var at = IndexOfWord(name.AsSpan(), from, 0);
-        if (at < 0 || IndexOfWord(name.AsSpan(), from, at + 1) >= 0 || IndexOfWord(name.AsSpan(), to, 0) >= 0)
+        var at = Words.IndexOf(name.AsSpan(), from, 0);
+        if (at < 0 || Words.IndexOf(name.AsSpan(), from, at + 1) >= 0 || Words.IndexOf(name.AsSpan(), to, 0) >= 0)
         {
             return false;
         }
@@ -826,12 +826,12 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
     {
         var prefix = CommonPrefix(x, y);
         var suffix = Math.Min(CommonSuffix(x, y), Math.Min(x.Length, y.Length) - prefix);
-        while (!IsWordBoundary(x.AsSpan(), prefix) || !IsWordBoundary(y.AsSpan(), prefix))
+        while (!Words.IsBoundary(x.AsSpan(), prefix) || !Words.IsBoundary(y.AsSpan(), prefix))
         {
             prefix--;
         }
 
-        while (!IsWordBoundary(x.AsSpan(), x.Length - suffix) || !IsWordBoundary(y.AsSpan(), y.Length - suffix))
+        while (!Words.IsBoundary(x.AsSpan(), x.Length - suffix) || !Words.IsBoundary(y.AsSpan(), y.Length - suffix))
         {
             suffix--;
         }
@@ -840,47 +840,8 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
         to = y.AsSpan(prefix, y.Length - prefix - suffix);
         return HasLetterOrDigit(from)
             && HasLetterOrDigit(to)
-            && IndexOfWord(from, to, 0) < 0
-            && IndexOfWord(to, from, 0) < 0;
-    }
-
-    // Words are separated by any character that is not a letter or digit, by a lower-case letter followed by an upper-case one, by a letter next to a digit, and before the last capital of an acronym followed by a lower-case letter (XML|Http).
-    // All-lower-case compounds such as 'minx' have no boundary inside.
-    private static bool IsWordBoundary(ReadOnlySpan<char> name, int index)
-    {
-        if (index <= 0 || index >= name.Length)
-        {
-            return true;
-        }
-
-        var before = name[index - 1];
-        var after = name[index];
-        if (!char.IsLetterOrDigit(before) || !char.IsLetterOrDigit(after) || char.IsDigit(before) != char.IsDigit(after))
-        {
-            return true;
-        }
-
-        if (char.IsLower(before) && char.IsUpper(after))
-        {
-            return true;
-        }
-
-        return char.IsUpper(before) && char.IsUpper(after) && index + 1 < name.Length && char.IsLower(name[index + 1]);
-    }
-
-    private static int IndexOfWord(ReadOnlySpan<char> text, ReadOnlySpan<char> word, int start)
-    {
-        for (var i = start; i + word.Length <= text.Length; i++)
-        {
-            if (IsWordBoundary(text, i)
-                && IsWordBoundary(text, i + word.Length)
-                && text.Slice(i, word.Length).Equals(word, StringComparison.OrdinalIgnoreCase))
-            {
-                return i;
-            }
-        }
-
-        return -1;
+            && Words.IndexOf(from, to, 0) < 0
+            && Words.IndexOf(to, from, 0) < 0;
     }
 
     private static bool HasLetterOrDigit(ReadOnlySpan<char> text)
@@ -1541,45 +1502,11 @@ public sealed class SimilarRunAnalyzer : DiagnosticAnalyzer
                 return model.GetTypeInfo(original).ConvertedType is not { } type || IsError(type) || model.ClassifyConversion(position, edited, type).IsImplicit;
 
             case ArgumentSyntax { Parent: BaseArgumentListSyntax { Parent: { } call } }:
-                return CallBinds(model, call, token, replacement);
+                return Speculation.CallBinds(model, call, call.ReplaceToken(token, replacement));
 
             default:
                 return true;
         }
-    }
-
-    // Overloads and type inference may pick another method for the new argument, so the whole call is bound again.
-    // A target-typed 'new(...)' cannot be bound on its own and is left alone.
-    // Member bindings need their enclosing conditional-access chain while the edited inner call is bound.
-    private static bool CallBinds(SemanticModel model, SyntaxNode call, SyntaxToken token, SyntaxToken replacement)
-    {
-        var edited = call.ReplaceToken(token, replacement);
-        var context = call;
-        for (var parent = call.Parent; parent is ExpressionSyntax; parent = parent.Parent)
-        {
-            if (parent is ConditionalAccessExpressionSyntax)
-            {
-                context = parent;
-            }
-        }
-
-        if (context != call)
-        {
-            var annotation = new SyntaxAnnotation();
-            var root = context.ReplaceNode(call, edited.WithAdditionalAnnotations(annotation));
-            edited = root.GetAnnotatedNodes(annotation).Single();
-        }
-
-        SymbolInfo? after = edited switch
-        {
-            ImplicitObjectCreationExpressionSyntax => null,
-            ExpressionSyntax expression => model.GetSpeculativeSymbolInfo(call.SpanStart, expression, SpeculativeBindingOption.BindAsExpression),
-            ConstructorInitializerSyntax initializer => model.GetSpeculativeSymbolInfo(call.SpanStart, initializer),
-            PrimaryConstructorBaseTypeSyntax baseType => model.GetSpeculativeSymbolInfo(call.SpanStart, baseType),
-            _ => null,
-        };
-
-        return after is not { Symbol: null } || model.GetSymbolInfo(call).Symbol is null;
     }
 
     private static bool IsError(ITypeSymbol? type) => type is null or { TypeKind: TypeKind.Error };
