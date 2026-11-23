@@ -81,6 +81,26 @@ public sealed class CultureIndependenceTests
             "TYPO0012.scan = DECLARATIONS",
             Verifier<Analyzers.SimilarRunAnalyzer>.Diagnostic(Descriptors.SimilarPairAnomaly).WithLocation(0).WithArguments("s.Index", "s.Items")));
 
+    // Culture-sensitive lower-casing turns the 'I' of 'Index' and 'Items' into 'ı', so neither argument would match a parameter.
+    [Fact]
+    public Task SwappedArgumentsUnderTurkishCulture() => InTurkishAsync(() =>
+        Verifier<Analyzers.ArgumentNameAnalyzer>.VerifyAsync(
+            """
+            public sealed class Page
+            {
+                public int Index;
+                public int Items;
+
+                public static void Show(int index, int items) { }
+
+                public void Run() => Show({|#0:Items|}, {|#1:Index|});
+            }
+            """,
+            Verifier<Analyzers.ArgumentNameAnalyzer>.Diagnostic(Descriptors.SwappedArguments)
+                .WithLocation(0)
+                .WithLocation(1)
+                .WithArguments("'Items' and 'Index'", "'index' and 'items'")));
+
     [Fact]
     public Task StringCaseUnderTurkishCulture() => InTurkishAsync(() =>
         Verifier<Analyzers.StringCaseAnalyzer>.VerifyAsync(

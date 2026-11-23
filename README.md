@@ -31,6 +31,9 @@ TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info
 | <a id="typo0012"></a>TYPO0012 | SimilarRunAnalyzer | The second of two similar statements, declarations, initializer members, conditions or arguments keeping a name built from the first one's word, as in `Height == other.Width`, `var minY = pts.Min(p => p.X)` or `new Vec(p.X, p.X)` (Info severity) |
 | <a id="typo0013"></a>TYPO0013 | ComparisonOperandAnalyzer | A comparison of a variable with a sum, difference or product that contains the same variable, as in `x == x + 1` or `x < x * y` (Info severity) |
 | <a id="typo0014"></a>TYPO0014 | AssignedVariableCheckAnalyzer | A variable assigned a transformed copy of a similarly named one, followed by an `if` that tests the original, as in `_value = value < 0 ? 0 : value; if (value == 0)` (Info severity) |
+| <a id="typo0015"></a>TYPO0015 | ArgumentNameAnalyzer | Arguments named like each other's parameters, as in `ProcessInvoice(invoiceId, customerId)`, `Resize(size.Height, size.Width)` or `Link(invoice.Id, customer.Id)` for parameters declared the other way round |
+| <a id="typo0016"></a>TYPO0016 | ArgumentNameAnalyzer | An argument named like a parameter other than the one it is passed for, with no swap, as in `ProcessInvoice(invoiceId, orderId)` for `ProcessInvoice(Guid customerId, Guid invoiceId)` (Info severity) |
+| <a id="typo0017"></a>TYPO0017 | ArgumentNameAnalyzer | An argument with a name of its own passed while a variable in scope, or another member of the same object, is named exactly like the parameter, as in `ProcessInvoice(customerId, orderId)` with an `invoiceId` at hand (Info severity) |
 
 ## Options
 
@@ -79,7 +82,8 @@ The analyzers use only ordinal and invariant string operations, and tests run th
 - Operands of `+` and `*` match in either order, except string concatenation, delegate combination and the `Matrix3x2`, `Matrix4x4` and `Quaternion` products of System.Numerics; another library's matrix product, such as WPF's `Matrix`, is still taken to commute.
 - TYPO0001 does not treat `x.HasValue` and `x != null` as the same test; such pairs are redundant rather than copy-paste mistakes.
 - TYPO0001 leaves a comparison of a local, parameter or field with itself, as in `count < count`, to the compiler's CS1718, which reports exactly these; properties, elements and calls stay TYPO0001's.
-- Swapped arguments matched by parameter name are left to Sonar S2234.
+- TYPO0015 to TYPO0017 compare names only, so an argument without one, such as a literal, a lambda or a sum of two variables, is never reported, and neither is an argument the other parameter would not accept.
+- TYPO0015 to TYPO0017 leave the same value passed for two parameters to TYPO0012.
 - Among statements, TYPO0011 and TYPO0012 pair only expression statements and initialized declarations, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
 - TYPO0008 ignores locals and parameters, which the compiler's unused-assignment check IDE0059 covers.
 - TYPO0008 pairs a null-conditional write only with one of the same shape, so `a?.X = 1; a.X = 2;` is not reported.

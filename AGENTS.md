@@ -23,7 +23,7 @@ dotnet test --project tests/Typo.Tests/Typo.Tests.csproj --coverage --coverage-o
 
 ## Layout
 
-- `src/Typo.Analyzers/Analyzers`: one analyzer class per file; RepeatedConditionAnalyzer, IdenticalBranchesAnalyzer and SimilarRunAnalyzer each report more than one rule.
+- `src/Typo.Analyzers/Analyzers`: one analyzer class per file; RepeatedConditionAnalyzer, IdenticalBranchesAnalyzer, SimilarRunAnalyzer and ArgumentNameAnalyzer each report more than one rule.
 - `src/Typo.Analyzers/Descriptors.cs`: the descriptor of every rule, with its message, severity and help link.
 - `src/Typo.Analyzers/Core`: the core the analyzers share, listed below.
 - `tests/Typo.Tests`: one `<Analyzer>Tests` class per analyzer, plus `CoreTests`, `CultureIndependenceTests`, `HelpLinkTests` and `RobustnessTests`, which runs every analyzer over code as it looks mid-typing and asserts that none throws.
@@ -40,7 +40,8 @@ The analyzers share the core in `src/Typo.Analyzers/Core`; IdenticalBranchesAnal
 - `Limits`: depth and stack guards, so huge generated expressions cannot overflow the compiler's stack.
 - `StatementList`: the lists of neighbouring statements that rules compare, from blocks and switch sections alike.
 - `Quote`: the source text of a diagnostic message on one line, so MSBuild's line-by-line log does not cut it.
-- `Words`: where the words of an identifier begin and end, as in `max|Row|Count`.
+- `Words`: where the words of an identifier begin and end, as in `max|Row|Count`, and a name split into them.
+- `Swizzle`: a member whose name spells its call's arguments in order, as `Yx => new(Y, X)` does, which states the order on purpose.
 - `Speculation`: whether a call still binds after a suggested edit, with overload resolution and type inference run again.
 
 ## Changing a rule

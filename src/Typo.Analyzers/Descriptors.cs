@@ -146,4 +146,34 @@ internal static class Descriptors
         isEnabledByDefault: true,
         description: "A variable is assigned a transformed copy of another variable with a similar name, and the next 'if' tests the original instead of the variable just assigned, as in '_value = value < 0 ? 0 : value; if (value == 0)'. This heuristic is reported as a suggestion.",
         helpLinkUri: HelpLinkBase + "typo0014");
+
+    public static readonly DiagnosticDescriptor SwappedArguments = new(
+        id: "TYPO0015",
+        title: "Arguments passed in each other's place",
+        messageFormat: "{0} look swapped: they are passed as {1}",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true,
+        description: "Each of two or more arguments is named like the parameter another of them is passed for, as in 'ProcessInvoice(invoiceId, customerId)' for 'ProcessInvoice(Guid customerId, Guid invoiceId)'. Names are compared word by word, ignoring case and field prefixes, and may come from a property, a method or its receiver, as in 'invoice.Id'. The arguments must also be accepted in the other order.",
+        helpLinkUri: HelpLinkBase + "typo0015");
+
+    public static readonly DiagnosticDescriptor ArgumentNamedLikeAnotherParameter = new(
+        id: "TYPO0016",
+        title: "Argument named like a different parameter",
+        messageFormat: "'{0}' is passed as '{1}', but its name matches the parameter '{2}'",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "An argument is named like a parameter other than the one it is passed for, and that parameter would accept it, as in 'ProcessInvoice(invoiceId, orderId)' for 'ProcessInvoice(Guid customerId, Guid invoiceId)'. Either the arguments are in the wrong order or one is missing. This heuristic is reported as a suggestion.",
+        helpLinkUri: HelpLinkBase + "typo0016");
+
+    public static readonly DiagnosticDescriptor ArgumentPassedOverNamesake = new(
+        id: "TYPO0017",
+        title: "Argument passed in place of one named like the parameter",
+        messageFormat: "'{0}' is passed as '{1}' although '{2}' is named like that parameter",
+        category: Correctness,
+        defaultSeverity: DiagnosticSeverity.Info,
+        isEnabledByDefault: true,
+        description: "An argument has a name of its own while a variable in scope, or another member of the same object, is named exactly like the parameter and would be accepted, as in 'ProcessInvoice(customerId, orderId)' with an 'invoiceId' at hand. This heuristic is reported as a suggestion.",
+        helpLinkUri: HelpLinkBase + "typo0017");
 }

@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace Typo.Core;
 
 /// <summary>
@@ -9,6 +11,33 @@ namespace Typo.Core;
 /// </remarks>
 internal static class Words
 {
+    // The words of a name in lower case and without its field prefix, so m_rowCount, _rowCount and RowCount all give 'row' and 'count'.
+    // Invariant casing keeps 'Index' from becoming 'ındex' under a Turkish culture.
+    public static ImmutableArray<string> Split(string name)
+    {
+        var span = name.AsSpan();
+        var start = span.Length > 2 && span[1] == '_' && span[0] is 'm' or 's' ? 2 : 0;
+        var words = ImmutableArray.CreateBuilder<string>();
+        for (var i = start; i < span.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(span[i]))
+            {
+                continue;
+            }
+
+            var end = i + 1;
+            while (end < span.Length && !IsBoundary(span, end))
+            {
+                end++;
+            }
+
+            words.Add(span.Slice(i, end - i).ToString().ToLowerInvariant());
+            i = end - 1;
+        }
+
+        return words.ToImmutable();
+    }
+
     public static bool IsBoundary(ReadOnlySpan<char> name, int index)
     {
         if (index <= 0 || index >= name.Length)
