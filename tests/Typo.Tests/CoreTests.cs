@@ -513,6 +513,20 @@ public sealed class CoreTests
         Assert.False(Framework.IsFrameworkValue(compilation.DynamicType));
     }
 
+    [Theory]
+    [InlineData("maxRowCount", "max row count")]
+    [InlineData("MaxRowCount", "max row count")]
+    [InlineData("_rowCount", "row count")]
+    [InlineData("m_rowCount", "row count")]
+    [InlineData("s_RowCount", "row count")]
+    [InlineData("NECESSARY_AUDIO_MIAS", "necessary audio mias")]
+    [InlineData("imageMIATypeIds", "image mia type ids")]
+    [InlineData("XMLHttpRequest", "xml http request")]
+    [InlineData("x1", "x 1")]
+    [InlineData("minx", "minx")]
+    [InlineData("_", "")]
+    public void WordsOfAName(string name, string expected) => Assert.Equal(expected, string.Join(' ', Words.Split(name)));
+
     private static async Task<(Compilation Compilation, IOperation First, IOperation Second)> TwoExpressionsAsync(string first, string second)
     {
         var source = Prelude + $$"""

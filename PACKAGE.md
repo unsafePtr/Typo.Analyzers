@@ -23,6 +23,9 @@ Each ID links to examples on GitHub.
 | [TYPO0012](https://github.com/unsafePtr/Typo.Analyzers#typo0012) | Probable unedited copy in a pair of similar lines | Info |
 | [TYPO0013](https://github.com/unsafePtr/Typo.Analyzers#typo0013) | Comparison operand repeated on the other side | Info |
 | [TYPO0014](https://github.com/unsafePtr/Typo.Analyzers#typo0014) | Condition checks the source of the variable just assigned | Info |
+| [TYPO0015](https://github.com/unsafePtr/Typo.Analyzers#typo0015) | Arguments passed in each other's place | Warning |
+| [TYPO0016](https://github.com/unsafePtr/Typo.Analyzers#typo0016) | Argument named like a different parameter | Info |
+| [TYPO0017](https://github.com/unsafePtr/Typo.Analyzers#typo0017) | Argument passed in place of one named like the parameter | Info |
 
 ## Options
 
@@ -34,6 +37,15 @@ TYPO0012.scan = declarations, arguments
 ```
 
 The values are `statements`, `declarations`, `initializers`, `conditions` and `arguments`, and the default is all five.
+
+TYPO0015 to TYPO0017 report only clear cases by default, and `typo_argument_match = loose` makes them report every name that fits another parameter:
+
+```ini
+[*.cs]
+typo_argument_match = loose
+```
+
+The [README](https://github.com/unsafePtr/Typo.Analyzers#options) lists what the default leaves out.
 
 Building with `-p:WarningLevel=0` hides every analyzer diagnostic, these included.
 The [README](https://github.com/unsafePtr/Typo.Analyzers#known-gaps) lists the known gaps.

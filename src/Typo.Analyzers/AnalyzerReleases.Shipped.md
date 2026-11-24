@@ -1,6 +1,16 @@
 ; Shipped analyzer releases
 ; https://github.com/dotnet/roslyn-analyzers/blob/main/src/Microsoft.CodeAnalysis.Analyzers/ReleaseTrackingAnalyzers.Help.md
 
+## Release 0.2.0
+
+### New Rules
+
+Rule ID | Category | Severity | Notes
+--------|----------|----------|-------
+TYPO0015 | Correctness | Warning | ArgumentNameAnalyzer
+TYPO0016 | Correctness | Info | ArgumentNameAnalyzer
+TYPO0017 | Correctness | Info | ArgumentNameAnalyzer
+
 ## Release 0.1.0
 
 ### New Rules
