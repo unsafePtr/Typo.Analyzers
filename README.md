@@ -12,6 +12,7 @@ The skip has to match only the correct case, such as two identical reads with a 
 Code that only might make a repeat legitimate does not count.
 A write between two equal checks may just make the second one dead: `if (!map.ContainsKey(k)) { map[k] = 0; }` twice.
 TYPO0011 and TYPO0012 look for inherently noisy patterns, so they report at Info severity instead of staying silent.
+TYPO0015 to TYPO0017 are the exception: names fit parameters loosely in most code, so by default they report only clear cases, and `typo_argument_match = loose` reports every match.
 
 ## Rules
 
@@ -55,6 +56,27 @@ TYPO0012.scan = declarations, arguments
 Names are matched ignoring case, unknown names are skipped, and a value with no known name keeps all five.
 TYPO0011 does not read this option.
 
+TYPO0015 to TYPO0017 share one option, `typo_argument_match`, which is `tight` unless set to `loose`:
+
+```ini
+[*.cs]
+typo_argument_match = loose
+```
+
+Tight matching, the default, reports only clear cases:
+- TYPO0015 compares whole words, abbreviations such as `dst` and slips such as `heigth`, but not a lone initial such as `w` for `width`.
+- TYPO0015 skips swaps that look deliberate: named arguments, a call that the same member also makes in the other order, a reversal word such as `inverted` or `descending` in the names, the member or a condition guarding the call, a vector turned as in `(v.Y, -v.X)`, and one value's members passed to parameters named for positions or components, as in `Atan2(d.X, d.Y)` or a colour built from `B`, `G` and `R`.
+- TYPO0015 also skips swaps that cannot matter or are meant to fail: of an extension method's receiver called on, as in `destination.CopyInto(source)`, of the first two operands of a method such as `Max`, `Dot` or `Equals` whose result does not depend on their order, in a negated result, and inside a lambda passed to an assertion such as `Assert.Throws`.
+- TYPO0016 needs the argument to have exactly the other parameter's name, not contained in its own parameter's name, while that parameter is left out or gets something not named for it.
+- TYPO0016 needs an argument the caller named itself: a parameter it forwards, a member of its own object, or a local where the parameter it names gets a static member or a constant such as `Environment.NewLine`.
+- TYPO0016 skips parameters told apart by position or a single letter, such as `first` and `second` or the `a` of `Sub(a, b)`, a value labelled by a string of its name as in `Add("name", name)`, an extension method's receiver called on, a call inside `Assert.Throws`, and a named argument unless the parameter it names is left out.
+- TYPO0017 needs the namesake to be a parameter of the argument's type that the member never reads, and skips lambdas, local functions, overrides, explicit interface implementations and event handlers, whose signatures are set elsewhere.
+- TYPO0015 and TYPO0017 report a swap or a namesake once per member, at its first call.
+- An argument of a call or `new` with one argument, as in `Math.Abs(height)`, does not name the result, and neither does the type of a static member, as in `ClientOrderId.None`.
+
+Loose matching reports all of these, and its findings carry the reason in their properties for review.
+It looks up a namesake for every argument named for something else, so it costs several times more analysis time than the default; it suits a review of a codebase more than everyday builds.
+
 Building with `-p:WarningLevel=0` hides every analyzer diagnostic, these included, even ones raised to errors in `.editorconfig`.
 
 ## Culture independence
@@ -84,6 +106,9 @@ The analyzers use only ordinal and invariant string operations, and tests run th
 - TYPO0001 leaves a comparison of a local, parameter or field with itself, as in `count < count`, to the compiler's CS1718, which reports exactly these; properties, elements and calls stay TYPO0001's.
 - TYPO0015 to TYPO0017 compare names only, so an argument without one, such as a literal, a lambda or a sum of two variables, is never reported, and neither is an argument the other parameter would not accept.
 - TYPO0015 to TYPO0017 leave the same value passed for two parameters to TYPO0012.
+- Parameters numbered alike, as `x0` and `x1` or `val1` and `val2`, are told apart by position, so TYPO0015 reports them only when two arguments carry each other's whole names, and TYPO0016 and TYPO0017 never do.
+- By default TYPO0015 to TYPO0017 leave out the shapes listed under Options, so a swap of named arguments, of `h` and `w` or of `Atan2(d.X, d.Y)` is reported only with `typo_argument_match = loose`.
+- By default a swap repeated in one member is reported at its first call only, so fixing it means checking that member's other calls of the method.
 - Among statements, TYPO0011 and TYPO0012 pair only expression statements and initialized declarations, so an `if` between two similar lines ends the run and declarations separated by other statements are not paired.
 - TYPO0008 ignores locals and parameters, which the compiler's unused-assignment check IDE0059 covers.
 - TYPO0008 pairs a null-conditional write only with one of the same shape, so `a?.X = 1; a.X = 2;` is not reported.

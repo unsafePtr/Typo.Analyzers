@@ -38,5 +38,14 @@ TYPO0012.scan = declarations, arguments
 
 The values are `statements`, `declarations`, `initializers`, `conditions` and `arguments`, and the default is all five.
 
+TYPO0015 to TYPO0017 report only clear cases by default, and `typo_argument_match = loose` makes them report every name that fits another parameter:
+
+```ini
+[*.cs]
+typo_argument_match = loose
+```
+
+The [README](https://github.com/unsafePtr/Typo.Analyzers#options) lists what the default leaves out.
+
 Building with `-p:WarningLevel=0` hides every analyzer diagnostic, these included.
 The [README](https://github.com/unsafePtr/Typo.Analyzers#known-gaps) lists the known gaps.

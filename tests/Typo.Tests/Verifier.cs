@@ -20,13 +20,18 @@ internal static class Verifier<TAnalyzer>
     public static Task VerifyWithReferencesAsync(ReferenceAssemblies references, string source, params DiagnosticResult[] expected) =>
         RunAsync(source, string.Empty, references, expected);
 
-    private static Task RunAsync(string source, string options, ReferenceAssemblies references, DiagnosticResult[] expected)
+    // Top-level statements compile only into an executable.
+    public static Task VerifyProgramAsync(string source, params DiagnosticResult[] expected) =>
+        RunAsync(source, string.Empty, ReferenceAssemblies.Net.Net100, expected, OutputKind.ConsoleApplication);
+
+    private static Task RunAsync(string source, string options, ReferenceAssemblies references, DiagnosticResult[] expected, OutputKind outputKind = OutputKind.DynamicallyLinkedLibrary)
     {
         var test = new CSharpAnalyzerTest<TAnalyzer, DefaultVerifier>
         {
             TestCode = source,
             ReferenceAssemblies = references,
         };
+        test.TestState.OutputKind = outputKind;
         if (options.Length > 0)
         {
             test.TestState.AnalyzerConfigFiles.Add(("/.editorconfig", $"root = true\n\n[*.cs]\n{options}\n"));

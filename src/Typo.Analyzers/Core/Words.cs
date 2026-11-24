@@ -11,31 +11,58 @@ namespace Typo.Core;
 /// </remarks>
 internal static class Words
 {
+    // Names are lowered on the stack up to this length, so each word costs one string.
+    private const int StackLength = 256;
+
     // The words of a name in lower case and without its field prefix, so m_rowCount, _rowCount and RowCount all give 'row' and 'count'.
     // Invariant casing keeps 'Index' from becoming 'ındex' under a Turkish culture.
     public static ImmutableArray<string> Split(string name)
     {
         var span = name.AsSpan();
-        var start = span.Length > 2 && span[1] == '_' && span[0] is 'm' or 's' ? 2 : 0;
-        var words = ImmutableArray.CreateBuilder<string>();
-        for (var i = start; i < span.Length; i++)
+        var first = span.Length > 2 && span[1] == '_' && span[0] is 'm' or 's' ? 2 : 0;
+        var count = 0;
+        for (var at = first; NextWord(span, ref at, out _);)
         {
-            if (!char.IsLetterOrDigit(span[i]))
-            {
-                continue;
-            }
-
-            var end = i + 1;
-            while (end < span.Length && !IsBoundary(span, end))
-            {
-                end++;
-            }
-
-            words.Add(span.Slice(i, end - i).ToString().ToLowerInvariant());
-            i = end - 1;
+            count++;
         }
 
-        return words.ToImmutable();
+        if (count == 0)
+        {
+            return [];
+        }
+
+        var words = ImmutableArray.CreateBuilder<string>(count);
+        var lower = span.Length <= StackLength ? stackalloc char[StackLength] : new char[span.Length];
+        for (var at = first; NextWord(span, ref at, out var start);)
+        {
+            var length = span.Slice(start, at - start).ToLowerInvariant(lower);
+            words.Add(lower.Slice(0, length).ToString());
+        }
+
+        return words.MoveToImmutable();
+    }
+
+    // Moves past the next word at or after 'at', whose first character is then at 'start'; false when no word is left.
+    private static bool NextWord(ReadOnlySpan<char> span, ref int at, out int start)
+    {
+        while (at < span.Length && !char.IsLetterOrDigit(span[at]))
+        {
+            at++;
+        }
+
+        start = at;
+        if (at == span.Length)
+        {
+            return false;
+        }
+
+        at++;
+        while (at < span.Length && !IsBoundary(span, at))
+        {
+            at++;
+        }
+
+        return true;
     }
 
     public static bool IsBoundary(ReadOnlySpan<char> name, int index)

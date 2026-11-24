@@ -154,7 +154,7 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true,
-        description: "Each of two or more arguments is named like the parameter another of them is passed for, as in 'ProcessInvoice(invoiceId, customerId)' for 'ProcessInvoice(Guid customerId, Guid invoiceId)'. Names are compared word by word, ignoring case and field prefixes, and may come from a property, a method or its receiver, as in 'invoice.Id'. The arguments must also be accepted in the other order.",
+        description: "Each of two or more arguments is named like the parameter another of them is passed for, as in 'ProcessInvoice(invoiceId, customerId)' for 'ProcessInvoice(Guid customerId, Guid invoiceId)'. Names are compared word by word, ignoring case and field prefixes, and may come from a property, a method or its receiver, as in 'invoice.Id'. The arguments must also be accepted in the other order. 'typo_argument_match = loose' in .editorconfig also reports swaps that look deliberate or cannot matter, such as named arguments, a vector turned as in '(v.Y, -v.X)' or the operands of 'Max', and every repeat of a swap in one member.",
         helpLinkUri: HelpLinkBase + "typo0015");
 
     public static readonly DiagnosticDescriptor ArgumentNamedLikeAnotherParameter = new(
@@ -164,7 +164,7 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "An argument is named like a parameter other than the one it is passed for, and that parameter would accept it, as in 'ProcessInvoice(invoiceId, orderId)' for 'ProcessInvoice(Guid customerId, Guid invoiceId)'. Either the arguments are in the wrong order or one is missing. This heuristic is reported as a suggestion.",
+        description: "An argument is named like a parameter other than the one it is passed for, and that parameter would accept it, as in 'ProcessInvoice(invoiceId, orderId)' for 'ProcessInvoice(Guid customerId, Guid invoiceId)'. Either the arguments are in the wrong order or one is missing. By default the argument must have exactly that parameter's name and be a parameter, a member of the caller's own object, or a local where that parameter gets a static member, and that parameter must be left out or get something not named for it; 'typo_argument_match = loose' in .editorconfig also reports partial and abbreviated names, locals and computed values. This heuristic is reported as a suggestion.",
         helpLinkUri: HelpLinkBase + "typo0016");
 
     public static readonly DiagnosticDescriptor ArgumentPassedOverNamesake = new(
@@ -174,6 +174,6 @@ internal static class Descriptors
         category: Correctness,
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true,
-        description: "An argument has a name of its own while a variable in scope, or another member of the same object, is named exactly like the parameter and would be accepted, as in 'ProcessInvoice(customerId, orderId)' with an 'invoiceId' at hand. This heuristic is reported as a suggestion.",
+        description: "An argument has a name of its own while a variable in scope, or another member of the same object, is named exactly like the parameter and would be accepted, as in 'ProcessInvoice(customerId, orderId)' with an 'invoiceId' at hand. By default that is only a parameter of the argument's type that the member never reads, in a member whose signature is its own; 'typo_argument_match = loose' in .editorconfig also counts a local, one in use and another member of the same object. This heuristic is reported as a suggestion.",
         helpLinkUri: HelpLinkBase + "typo0017");
 }
