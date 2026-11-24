@@ -86,11 +86,11 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
         context.RegisterCompilationStartAction(static start =>
         {
             var table = new WordTable();
-            var globalStaticImports = new Lazy<bool>(() => HasGlobalStaticImport(start.Compilation));
+            var types = new TypeFacts(start.Compilation);
             start.RegisterOperationBlockStartAction(block =>
             {
                 var loose = block.OperationBlocks.FirstOrDefault()?.Syntax.SyntaxTree is { } tree && IsLoose(block.Options, tree);
-                var scope = new MemberScope(block.OwningSymbol, table, loose, globalStaticImports);
+                var scope = new MemberScope(block.OwningSymbol, table, types, loose);
                 block.RegisterOperationAction(scope.Analyze, OperationKind.Invocation, OperationKind.ObjectCreation, OperationKind.PropertyReference);
                 if (!loose)
                 {
@@ -1677,7 +1677,7 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
     // What the calls of one member share: its matching mode, the parameters a namesake can be, which of them it reads, and the first report of each repeat.
     // Tight matching reports a swap, or a namesake passed over, once per member: at the first call that shows it.
     // A member that repeats one, as a table of constructor calls does, repeats one choice, so one report shows it, and fixing it means reading every such call.
-    private sealed class MemberScope(ISymbol owner, WordTable table, bool loose, Lazy<bool> globalStaticImports)
+    private sealed class MemberScope(ISymbol owner, WordTable table, TypeFacts types, bool loose)
     {
         private readonly object _gate = new();
         private Dictionary<(ISymbol Symbol, uint Parameters), Diagnostic>? _first;
@@ -1720,7 +1720,7 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
         private Reach FindReach()
         {
             var names = new HashSet<string>(StringComparer.Ordinal);
-            var staticImports = globalStaticImports.Value;
+            var staticImports = types.GlobalStaticImports;
             foreach (var reference in owner.DeclaringSyntaxReferences)
             {
                 var syntax = reference.GetSyntax();
@@ -1744,7 +1744,7 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
 
         private sealed record Reach(HashSet<string> Names, bool StaticImports);
 
-        // The member's own parameters and those of its type's primary constructor, found once because a type builds its constructor list anew on each request.
+        // The member's own parameters and those of its type's primary constructor.
         public ImmutableArray<IParameterSymbol> Parameters
         {
             get
@@ -1753,16 +1753,9 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
                 {
                     var member = MemberOf(owner);
                     var parameters = member is IMethodSymbol method ? method.Parameters : [];
-                    if (member.ContainingType is { IsRecord: false } type)
+                    if (member.ContainingType is { } type && types.PrimaryParameters(type) is { IsEmpty: false } primary)
                     {
-                        foreach (var constructor in type.InstanceConstructors)
-                        {
-                            if (!constructor.Parameters.IsEmpty && IsPrimary(constructor))
-                            {
-                                parameters = parameters.AddRange(constructor.Parameters);
-                                break;
-                            }
-                        }
+                        parameters = parameters.AddRange(primary);
                     }
 
                     ImmutableInterlocked.InterlockedInitialize(ref _parameters, parameters);
@@ -1837,6 +1830,33 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
 
             public int GetHashCode((ISymbol Symbol, uint Parameters) key) => SymbolEqualityComparer.Default.GetHashCode(key.Symbol) ^ (int)key.Parameters;
         }
+    }
+
+    // What the members of a compilation share about its types: each type's primary constructor parameters, and whether a file imports static members for every file.
+    // A type builds its constructor list, and a constructor its syntax references, anew on each request, so each type is asked once.
+    private sealed class TypeFacts(Compilation compilation)
+    {
+        private readonly ConcurrentDictionary<INamedTypeSymbol, ImmutableArray<IParameterSymbol>> _primaryParameters = new(SymbolEqualityComparer.Default);
+        private readonly Lazy<bool> _globalStaticImports = new(() => HasGlobalStaticImport(compilation));
+
+        public bool GlobalStaticImports => _globalStaticImports.Value;
+
+        // A record's primary constructor parameters are read through its properties, so they are never namesakes (see IsStoredInMember).
+        public ImmutableArray<IParameterSymbol> PrimaryParameters(INamedTypeSymbol type) => _primaryParameters.GetOrAdd(type, static type =>
+        {
+            if (!type.IsRecord)
+            {
+                foreach (var constructor in type.InstanceConstructors)
+                {
+                    if (!constructor.Parameters.IsEmpty && IsPrimary(constructor))
+                    {
+                        return constructor.Parameters;
+                    }
+                }
+            }
+
+            return [];
+        });
     }
 
     // Names repeat throughout a compilation, so each is split into words once.
