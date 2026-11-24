@@ -269,12 +269,9 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
     }
 
     // An argument that names the parameter of one that names it back, directly or through others, is part of a swap; any other is reported on its own.
-    // Tight matching, the default, reports what corpus review found to be a likely mistake rather than a loose fit:
-    // - a swap whose arguments name each other's parameters by whole words, an abbreviation or a slip of the keyboard, but not by a lone initial;
-    // - no swap that looks deliberate or changes nothing (see ReportSwap);
-    // - an argument holding exactly another parameter's name, which the caller named itself, while that parameter is left out or gets something not named for it (see IsClearlyMisnamed);
-    // - a namesake only when it is a parameter of the same type that the member never reads, in a member free to use it (see ReportNamesake);
-    // - a swap or a namesake once per member (see MemberScope).
+    // Tight matching uses words, abbreviations or typos and skips deliberate swaps (see ReportSwap).
+    // IsClearlyMisnamed checks single arguments, and ReportNamesake checks unused parameters of the same type.
+    // MemberScope keeps only the first swap or namesake report in a member.
     private static void Report(OperationAnalysisContext context, ISymbol callee, ImmutableArray<IArgumentOperation> arguments, Candidate[] candidates, WordTable table, MemberScope scope, bool loose)
     {
         var swapped = new bool[candidates.Length];
@@ -609,7 +606,8 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
         properties["target"] = target;
         if (context.Operation.SemanticModel is { } model && FindNamesake(model, context.ContainingSymbol, argument, expression, scope, out _) is { } namesake)
         {
-            properties["inScope"] = IsReferenced(context.Operation, namesake) ? "used" : "unused";
+            var read = namesake is IParameterSymbol parameter ? scope.IsRead(parameter, context.Operation) : IsReferenced(context.Operation, namesake);
+            properties["inScope"] = read ? "used" : "unused";
         }
 
         var targetValue = candidate.At >= 0 ? arguments[candidate.At].Value : null;
@@ -764,7 +762,7 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
 
             foreach (var symbol in model.LookupSymbols(position, name: spelling))
             {
-                if (IsReadableAt(symbol, container, expression) && IsNamesake(model, symbol, passed, parameter))
+                if (IsReadableAt(symbol, container, expression, scope) && IsNamesake(model, symbol, passed, parameter))
                 {
                     display = symbol.Name;
                     return symbol;
@@ -903,7 +901,7 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
     // Lookup also returns names the call cannot read: locals declared later in the block, locals of top-level statements seen from a type, and instance state seen from a static member.
     // A static lambda or local function reads nothing of the code around it but static members (CS8421).
     // A primary constructor parameter cannot be read in another constructor's initializer or in a nested type (CS9105).
-    private static bool IsReadableAt(ISymbol symbol, ISymbol container, SyntaxNode at) =>
+    private static bool IsReadableAt(ISymbol symbol, ISymbol container, SyntaxNode at, MemberScope scope) =>
         (symbol.IsStatic || !IsBehindStaticFunction(symbol, at))
         && symbol switch
         {
@@ -913,7 +911,7 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
                 !container.IsStatic
                 && SymbolEqualityComparer.Default.Equals(MemberOf(container).ContainingType, constructor.ContainingType)
                 && !at.Ancestors().Any(node => node is ConstructorInitializerSyntax)
-                && !IsStoredInMember(parameter, constructor.ContainingType),
+                && !scope.IsStoredPrimary(parameter),
             IParameterSymbol parameter => SymbolEqualityComparer.Default.Equals(MemberOf(parameter.ContainingSymbol), MemberOf(container)),
             _ => symbol.IsStatic || !container.IsStatic,
         };
@@ -1004,15 +1002,13 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
         return false;
     }
 
-    // A primary constructor parameter copied into a member is read through that member, as a record's positional parameters are through their properties.
-    // C# warns (CS9124) when such a parameter is read in a method as well, so a method would pass the member, not the parameter.
-    private static bool IsStoredInMember(IParameterSymbol parameter, INamedTypeSymbol type)
+    // Initializers can mention another object's member, a named argument or a parameter that shadows this one.
+    // Only references bound to this parameter count as reads or copies stored in a member.
+    private static (bool Read, bool Stored) InspectPrimaryParameter(Compilation compilation, IParameterSymbol parameter)
     {
-        if (type.IsRecord || !type.GetMembers(parameter.Name).IsEmpty)
-        {
-            return true;
-        }
-
+        var type = parameter.ContainingType;
+        var read = false;
+        var stored = type.IsRecord || !type.GetMembers(parameter.Name).IsEmpty;
         foreach (var reference in type.DeclaringSyntaxReferences)
         {
             if (reference.GetSyntax() is not TypeDeclarationSyntax declaration)
@@ -1020,33 +1016,34 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
                 continue;
             }
 
-            foreach (var member in declaration.Members)
+#pragma warning disable RS1030 // Usage spans partial declarations and is cached per compilation.
+            var model = compilation.GetSemanticModel(declaration.SyntaxTree);
+#pragma warning restore RS1030
+            foreach (var identifier in declaration.DescendantNodes().OfType<IdentifierNameSyntax>())
             {
-                switch (member)
+                if (!string.Equals(identifier.Identifier.ValueText, parameter.Name, StringComparison.Ordinal)
+                    || !SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(identifier).Symbol, parameter))
                 {
-                    case BaseFieldDeclarationSyntax field:
-                        foreach (var variable in field.Declaration.Variables)
-                        {
-                            if (Reads(variable.Initializer, parameter.Name))
-                            {
-                                return true;
-                            }
-                        }
+                    continue;
+                }
 
-                        break;
-
-                    case PropertyDeclarationSyntax property when Reads(property.Initializer, parameter.Name):
-                        return true;
+                read = true;
+                stored |= identifier.Ancestors().Any(node => node is EqualsValueClauseSyntax
+                {
+                    Parent: PropertyDeclarationSyntax or VariableDeclaratorSyntax
+                    {
+                        Parent: VariableDeclarationSyntax { Parent: BaseFieldDeclarationSyntax },
+                    },
+                });
+                if (stored)
+                {
+                    return (true, true);
                 }
             }
         }
 
-        return false;
+        return (read, stored);
     }
-
-    private static bool Reads(SyntaxNode? initializer, string name) =>
-        initializer is not null
-        && initializer.DescendantNodes().OfType<IdentifierNameSyntax>().Any(identifier => string.Equals(identifier.Identifier.ValueText, name, StringComparison.Ordinal));
 
     private static ITypeSymbol? TypeOf(ISymbol symbol) => symbol switch
     {
@@ -1059,11 +1056,6 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
 
     private static bool IsReferenced(IOperation call, ISymbol symbol)
     {
-        if (symbol is IParameterSymbol { ContainingSymbol: IMethodSymbol { MethodKind: MethodKind.Constructor } constructor } && IsPrimary(constructor))
-        {
-            return IsReadInType(constructor.ContainingType, symbol.Name);
-        }
-
         var root = call;
         while (root.Parent is { } parent)
         {
@@ -1082,26 +1074,6 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
             if (SymbolEqualityComparer.Default.Equals(referenced, symbol))
             {
                 return true;
-            }
-        }
-
-        return false;
-    }
-
-    // A primary constructor parameter is read anywhere in its type, the base type's arguments included, so the whole declaration is searched by name.
-    // A named argument and a member of another object only share the spelling.
-    private static bool IsReadInType(INamedTypeSymbol type, string name)
-    {
-        foreach (var reference in type.DeclaringSyntaxReferences)
-        {
-            foreach (var identifier in reference.GetSyntax().DescendantNodes().OfType<IdentifierNameSyntax>())
-            {
-                if (string.Equals(identifier.Identifier.ValueText, name, StringComparison.Ordinal)
-                    && identifier.Parent is not NameColonSyntax
-                    && !(identifier.Parent is MemberAccessExpressionSyntax access && access.Name == identifier))
-                {
-                    return true;
-                }
             }
         }
 
@@ -1690,6 +1662,8 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
 
         public string[] Spellings(string name) => table.Spellings(name);
 
+        public bool IsStoredPrimary(IParameterSymbol parameter) => types.PrimaryUse(parameter).Stored;
+
         // Whether anything in reach of the member may be spelled so, judged without a lookup: a name in its own code, a parameter in reach, a member of an enclosing type or one it derives from, or any static import, whose members are not listed.
         // A local or a lambda's variable in reach is declared in the member's code, and a parameter in reach belongs to the member or to its type's primary constructor.
         public bool MayDeclare(string spelling)
@@ -1770,6 +1744,11 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
         // Whether the member reads the parameter, asked once per parameter for the operation block the call is in.
         public bool IsRead(IParameterSymbol parameter, IOperation call)
         {
+            if (parameter.ContainingSymbol is IMethodSymbol constructor && IsPrimary(constructor))
+            {
+                return types.PrimaryUse(parameter).Read;
+            }
+
             var root = call;
             while (root.Parent is { } parent)
             {
@@ -1832,16 +1811,20 @@ public sealed class ArgumentNameAnalyzer : DiagnosticAnalyzer
         }
     }
 
-    // What the members of a compilation share about its types: each type's primary constructor parameters, and whether a file imports static members for every file.
+    // Primary constructor discovery and parameter usage are shared across the compilation's member callbacks.
     // A type builds its constructor list, and a constructor its syntax references, anew on each request, so each type is asked once.
     private sealed class TypeFacts(Compilation compilation)
     {
         private readonly ConcurrentDictionary<INamedTypeSymbol, ImmutableArray<IParameterSymbol>> _primaryParameters = new(SymbolEqualityComparer.Default);
+        private readonly ConcurrentDictionary<IParameterSymbol, (bool Read, bool Stored)> _primaryUses = new(SymbolEqualityComparer.Default);
+        private readonly Func<IParameterSymbol, (bool Read, bool Stored)> _inspectPrimary = parameter => InspectPrimaryParameter(compilation, parameter);
         private readonly Lazy<bool> _globalStaticImports = new(() => HasGlobalStaticImport(compilation));
 
         public bool GlobalStaticImports => _globalStaticImports.Value;
 
-        // A record's primary constructor parameters are read through its properties, so they are never namesakes (see IsStoredInMember).
+        public (bool Read, bool Stored) PrimaryUse(IParameterSymbol parameter) => _primaryUses.GetOrAdd(parameter, _inspectPrimary);
+
+        // A record's primary constructor parameters are read through its properties, so they are never namesakes.
         public ImmutableArray<IParameterSymbol> PrimaryParameters(INamedTypeSymbol type) => _primaryParameters.GetOrAdd(type, static type =>
         {
             if (!type.IsRecord)

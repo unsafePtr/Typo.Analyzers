@@ -1,3 +1,4 @@
+using Microsoft.CodeAnalysis.CSharp.Testing;
 using Microsoft.CodeAnalysis.Testing;
 using Xunit;
 using Verify = Typo.Tests.Verifier<Typo.Analyzers.ArgumentNameAnalyzer>;
@@ -1059,6 +1060,87 @@ public sealed class ArgumentNameAnalyzerTests
         }
         """,
         Namesake("NullLogger.Instance", "logger", "logger"));
+
+    [Theory]
+    [InlineData("private int _copy = Other.count;")]
+    [InlineData("private int Copy { get; } = Other.count;")]
+    [InlineData("private int _copy = Other.Make(count: 0);")]
+    [InlineData("private int Read(int count) => count;")]
+    public Task Namesake_PrimaryConstructorParameterIgnoresUnrelatedNames(string member) => Verify.VerifyAsync(
+        $$"""
+        public static class Other
+        {
+            public static int count;
+            public static int Make(int count) => count;
+        }
+
+        public sealed class Service(int count)
+        {
+            {{member}}
+            private int _height;
+
+            public void Run()
+            {
+                Save({|#0:_height|}, false);
+                Save(_height, false);
+            }
+
+            public void Again() => Save({|#1:_height|}, false);
+
+            private static void Save(int count, bool enabled) { }
+        }
+        """,
+        Namesake("_height", "count", "count"),
+        Namesake("_height", "count", "count", location: 1));
+
+    [Theory]
+    [InlineData("private int _copy = count;")]
+    [InlineData("private int Copy { get; } = count;")]
+    [InlineData("private int Read() => count;")]
+    public Task Silent_PrimaryConstructorParameterIsActuallyRead(string member) => Verify.VerifyAsync(
+        $$"""
+        public sealed class Service(int count)
+        {
+            {{member}}
+            private int _height;
+
+            public void Run() => Save(_height, false);
+
+            private static void Save(int count, bool enabled) { }
+        }
+        """);
+
+    [Theory]
+    [InlineData("private int Read(int count) => count;", true)]
+    [InlineData("private int Read() => count;", false)]
+    public Task PrimaryConstructor_ReadsAreBoundAcrossPartialDeclarations(string member, bool reports)
+    {
+        var argument = reports ? "{|#0:_height|}" : "_height";
+        var test = new CSharpAnalyzerTest<Typo.Analyzers.ArgumentNameAnalyzer, DefaultVerifier>
+        {
+            ReferenceAssemblies = ReferenceAssemblies.Net.Net100,
+        };
+        test.TestState.Sources.Add($$"""
+            public sealed partial class Service(int count)
+            {
+                private int _height;
+                public void Run() => Save({{argument}}, false);
+                private static void Save(int count, bool enabled) { }
+            }
+            """);
+        test.TestState.Sources.Add($$"""
+            public sealed partial class Service
+            {
+                {{member}}
+            }
+            """);
+        if (reports)
+        {
+            test.ExpectedDiagnostics.Add(Namesake("_height", "count", "count"));
+        }
+
+        return test.RunAsync(TestContext.Current.CancellationToken);
+    }
 
     [Fact]
     public Task Silent_NamesThatFitLoosely() => Verify.VerifyAsync(

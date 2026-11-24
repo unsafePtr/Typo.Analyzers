@@ -106,6 +106,7 @@ The analyzers use only ordinal and invariant string operations, and tests run th
 - TYPO0001 leaves a comparison of a local, parameter or field with itself, as in `count < count`, to the compiler's CS1718, which reports exactly these; properties, elements and calls stay TYPO0001's.
 - TYPO0015 to TYPO0017 compare names only, so an argument without one, such as a literal, a lambda or a sum of two variables, is never reported, and neither is an argument the other parameter would not accept.
 - TYPO0015 to TYPO0017 leave the same value passed for two parameters to TYPO0012.
+- TYPO0017 checks primary-constructor reads by symbol across the whole partial type, including base arguments.
 - Parameters numbered alike, as `x0` and `x1` or `val1` and `val2`, are told apart by position, so TYPO0015 reports them only when two arguments carry each other's whole names, and TYPO0016 and TYPO0017 never do.
 - By default TYPO0015 to TYPO0017 leave out the shapes listed under Options, so a swap of named arguments, of `h` and `w` or of `Atan2(d.X, d.Y)` is reported only with `typo_argument_match = loose`.
 - By default a swap repeated in one member is reported at its first call only, so fixing it means checking that member's other calls of the method.
